@@ -21,8 +21,6 @@ import {
 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { ja } from 'date-fns/locale';
-import { formatDate, formatDateTime } from '@/lib/utils';
 import { LiffBootstrap } from '@/components/liff-bootstrap';
 import type {
   CommunityChannel,
@@ -35,6 +33,7 @@ import type {
   UserProfile
 } from '@/types/models';
 import { env } from '@/lib/env';
+import { formatDate, formatDateTime } from '@/lib/utils';
 
 type TabKey = 'home' | 'universities' | 'schedules' | 'problems' | 'dashboard' | 'community';
 
@@ -139,7 +138,7 @@ const AccessGate = ({ title, description }: { title: string; description: string
   </div>
 );
 
-export const AppShell = () => {
+export const AppShell = ({ children }: { children?: React.ReactNode }) => {
   const queryClient = useQueryClient();
   const [currentTab, setCurrentTab] = useState<TabKey>('home');
   const [region, setRegion] = useState('all');
@@ -309,7 +308,6 @@ export const AppShell = () => {
                 <div className="rounded-2xl bg-navy px-3 py-2 text-white shadow-soft">Re-try Pro</div>
                 <div>
                   <div className="text-lg font-semibold text-navy-900">医学部学士編入りとらい</div>
-                  {/* 修正箇所1: 下記のdivタグの「>」を補完しました */}
                   <div className="text-sm text-slate-500">ゼロから医師への道しるべ</div>
                 </div>
               </div>
@@ -333,7 +331,7 @@ export const AppShell = () => {
               );
             })}
           </div>
-        </header> {/* 修正箇所2: ここでheaderを閉じます */}
+        </header>
 
         <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
           {currentTab === 'home' ? (
@@ -697,6 +695,10 @@ export const AppShell = () => {
               <AccessGate title="コミュニティ機能はログイン後に利用できます" description="投稿は LINE UID と紐づいたプロフィール単位で保存されます。" />
             )
           ) : null}
+
+          {/* 追加: 外部の画面コンテンツがここに展開されます */}
+          {children}
+
         </main>
       </div>
     </>
