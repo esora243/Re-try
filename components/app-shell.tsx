@@ -309,7 +309,8 @@ export const AppShell = () => {
                 <div className="rounded-2xl bg-navy px-3 py-2 text-white shadow-soft">Re-try Pro</div>
                 <div>
                   <div className="text-lg font-semibold text-navy-900">医学部学士編入りとらい</div>
-                  <div className="text-sm text-slate-500"ゼロから医師への道しるべ</div>
+                  {/* 修正箇所1: 下記のdivタグの「>」を補完しました */}
+                  <div className="text-sm text-slate-500">ゼロから医師への道しるべ</div>
                 </div>
               </div>
             </div>
@@ -328,12 +329,11 @@ export const AppShell = () => {
                   }`}
                 >
                   <Icon className="h-4 w-4" />
-                  {tab.label}
                 </button>
               );
             })}
           </div>
-        </header>
+        </header> {/* 修正箇所2: ここでheaderを閉じます */}
 
         <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
           {currentTab === 'home' ? (
