@@ -308,8 +308,8 @@ export const AppShell = () => {
               <div className="flex items-center gap-3">
                 <div className="rounded-2xl bg-navy px-3 py-2 text-white shadow-soft">Re-try Pro</div>
                 <div>
-                  <div className="text-lg font-semibold text-navy-900">医学部学士編入 完全対策プラットフォーム</div>
-                  <div className="text-sm text-slate-500">Next.js + Supabase + LINE LIFF 実装版</div>
+                  <div className="text-lg font-semibold text-navy-900">医学部学士編入りとらい</div>
+                  <div className="text-sm text-slate-500"ゼロから医師への道しるべ</div>
                 </div>
               </div>
             </div>
@@ -343,7 +343,7 @@ export const AppShell = () => {
                   <Sparkles className="h-4 w-4 text-gold-300" />
                   実データ運用向けに再構築済み
                 </div>
-                <h1 className="mt-6 text-4xl font-bold leading-tight sm:text-5xl">ハードコードを撤廃した、運用可能な受験対策Webアプリ</h1>
+                <h1 className="mt-6 text-4xl font-bold leading-tight sm:text-5xl">医学部学士編入これだけアプリ</h1>
                 <p className="mt-4 max-w-2xl text-base leading-7 text-slate-200">
                   LIFFでLINE UIDを取得し、Supabase Custom JWT を httpOnly Cookie に保存。以後の API リクエストは認証済みセッションで Supabase に接続し、大学情報・試験日程・過去問・学習記録・コミュニティ投稿をすべて動的に取得します。
                 </p>
