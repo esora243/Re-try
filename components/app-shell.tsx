@@ -399,7 +399,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
               <div className="flex items-center gap-3">
                 <div className="rounded-2xl bg-navy px-3 py-2 text-white shadow-soft">Re-try Pro</div>
                 <div className="min-w-0">
-                  <div className="text-base font-semibold text-navy-900 sm:text-lg">医学部学士編入これだけ</div>
+                  <div className="text-base font-semibold text-navy-900 sm:text-lg">医学部学士編入これだけアプリ</div>
                   <div className="text-sm text-slate-500">受験情報・学習管理・コミュニティをひとつに</div>
                 </div>
               </div>
