@@ -1,5 +1,5 @@
 import { requireSession } from '@/lib/auth';
-import { fail, ok } from '@/lib/api';
+import { ok } from '@/lib/api';
 
 export async function GET() {
   try {
@@ -9,7 +9,11 @@ export async function GET() {
       profile,
       claims
     });
-  } catch (error) {
-    return fail(error instanceof Error ? error.message : '未認証です。', 401);
+  } catch {
+    return ok({
+      authenticated: false,
+      profile: null,
+      claims: null
+    });
   }
 }

@@ -14,10 +14,12 @@ import {
   MessageSquare,
   RefreshCw,
   Send,
+  ShieldCheck,
   Sparkles,
   Trophy,
   University as UniversityIcon,
-  UserRound
+  UserRound,
+  Users
 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -30,16 +32,17 @@ import type {
   Problem,
   SummaryResponse,
   University,
+  UserGender,
   UserProfile
 } from '@/types/models';
 import { env } from '@/lib/env';
 import { formatDate, formatDateTime } from '@/lib/utils';
 
-type TabKey = 'home' | 'universities' | 'schedules' | 'problems' | 'dashboard' | 'community';
+type TabKey = 'home' | 'universities' | 'schedules' | 'problems' | 'dashboard' | 'community' | 'admin';
 
 type MeResponse = {
   authenticated: boolean;
-  profile: UserProfile;
+  profile: UserProfile | null;
 };
 
 type ProblemsResponse = {
@@ -48,17 +51,41 @@ type ProblemsResponse = {
   profile: Pick<UserProfile, 'id' | 'is_premium'> | null;
 };
 
-const tabs: Array<{ key: TabKey; label: string; icon: typeof LayoutGrid }> = [
+type OnboardingPayload = {
+  full_name: string;
+  school_name: string;
+  gender: UserGender;
+  club_name: string;
+};
+
+const baseTabs: Array<{ key: Exclude<TabKey, 'admin'>; label: string; icon: typeof LayoutGrid }> = [
   { key: 'home', label: 'ホーム', icon: LayoutGrid },
   { key: 'universities', label: '大学情報', icon: UniversityIcon },
   { key: 'schedules', label: '試験日程', icon: CalendarDays },
   { key: 'problems', label: '過去問', icon: BookOpen },
-  { key: 'dashboard', label: '学習管理', icon: ChartColumnBig },
+  { key: 'dashboard', label: 'ダッシュボード', icon: ChartColumnBig },
   { key: 'community', label: 'コミュニティ', icon: MessageSquare }
 ];
 
+const scheduleYears = ['2025', '2026', '2027'];
 const subjectOptions = ['all', '生命科学', '数学', '英語', '化学', '物理', '小論文'];
 const regions = ['all', '北海道・東北', '関東', '中部', '近畿', '中国・四国', '九州'];
+const genderOptions: UserGender[] = ['男性', '女性', 'その他', '回答しない'];
+
+const newsItems = [
+  {
+    title: '2025〜2027年度の受験スケジュールを年度別に確認可能',
+    description: '出願開始・締切・一次試験・二次試験を、年度ごとにすばやく見比べられます。'
+  },
+  {
+    title: 'LINEログイン後はそのままダッシュボードとコミュニティへ移動',
+    description: '学習記録や情報交換にすぐ入れる導線に整理し、初回登録もスマホで完結できるようにしました。'
+  },
+  {
+    title: 'トップページを受験生目線で再設計',
+    description: '新着情報、使い方、主要データを見やすくまとめ、迷わず必要な情報へ進めます。'
+  }
+];
 
 const fetchJson = async <T,>(input: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(input, init);
@@ -73,11 +100,11 @@ const dispatchLogin = () => window.dispatchEvent(new Event('line-login-request')
 const dispatchLogout = () => window.dispatchEvent(new Event('line-logout-request'));
 
 const SectionCard = ({ title, subtitle, children }: React.PropsWithChildren<{ title: string; subtitle?: string }>) => (
-  <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft">
+  <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
     <div className="mb-5 flex items-start justify-between gap-4">
       <div>
-        <h2 className="text-xl font-semibold text-navy-900">{title}</h2>
-        {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
+        <h2 className="text-lg font-semibold text-navy-900 sm:text-xl">{title}</h2>
+        {subtitle ? <p className="mt-1 text-sm leading-6 text-slate-500">{subtitle}</p> : null}
       </div>
     </div>
     {children}
@@ -94,7 +121,7 @@ const LoadingGrid = () => (
 
 const ErrorState = ({ message, onRetry }: { message: string; onRetry?: () => void }) => (
   <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-    <div className="font-medium">{message}</div>
+    <div className="font-medium leading-6">{message}</div>
     {onRetry ? (
       <button onClick={onRetry} className="mt-3 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-red-700">
         <RefreshCw className="h-4 w-4" />
@@ -107,7 +134,7 @@ const ErrorState = ({ message, onRetry }: { message: string; onRetry?: () => voi
 const EmptyState = ({ title, description }: { title: string; description: string }) => (
   <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
     <div className="font-medium text-slate-700">{title}</div>
-    <p className="mt-1">{description}</p>
+    <p className="mt-1 leading-6">{description}</p>
   </div>
 );
 
@@ -132,7 +159,8 @@ const AccessGate = ({ title, description }: { title: string; description: string
       {title}
     </div>
     <p className="mt-2 leading-6">{description}</p>
-    <button onClick={dispatchLogin} className="mt-4 inline-flex items-center gap-2 rounded-full bg-navy px-4 py-2 text-white">
+    <button onClick={dispatchLogin} className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#06C755] px-4 py-2 text-white">
+      <UserRound className="h-4 w-4" />
       LINEでログイン
     </button>
   </div>
@@ -144,7 +172,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
   const [region, setRegion] = useState('all');
   const [science, setScience] = useState('all');
   const [uniSearch, setUniSearch] = useState('');
-  const [selectedYear, setSelectedYear] = useState(`${new Date().getFullYear()}`);
+  const [selectedYear, setSelectedYear] = useState('2026');
   const [problemSubject, setProblemSubject] = useState('all');
   const [problemYear, setProblemYear] = useState('all');
   const [problemUniversityId, setProblemUniversityId] = useState('all');
@@ -156,11 +184,17 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
   });
   const [messageText, setMessageText] = useState('');
   const [selectedChannelId, setSelectedChannelId] = useState<string>('');
+  const [onboardingForm, setOnboardingForm] = useState<OnboardingPayload>({
+    full_name: '',
+    school_name: '',
+    gender: '回答しない',
+    club_name: ''
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as TabKey | null;
-    if (tab && tabs.some((item) => item.key === tab)) {
+    if (tab && [...baseTabs.map((item) => item.key), 'admin'].includes(tab)) {
       setCurrentTab(tab);
     }
   }, []);
@@ -174,8 +208,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
 
   const meQuery = useQuery<MeResponse>({
     queryKey: ['me'],
-    queryFn: () => fetchJson('/api/me'),
-    retry: false
+    queryFn: () => fetchJson('/api/me')
   });
 
   const summaryQuery = useQuery<SummaryResponse>({
@@ -185,7 +218,8 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
 
   const universitiesQuery = useQuery<University[]>({
     queryKey: ['universities', region, science, uniSearch],
-    queryFn: () => fetchJson(`/api/universities?region=${encodeURIComponent(region)}&science=${encodeURIComponent(science)}&search=${encodeURIComponent(uniSearch)}`)
+    queryFn: () =>
+      fetchJson(`/api/universities?region=${encodeURIComponent(region)}&science=${encodeURIComponent(science)}&search=${encodeURIComponent(uniSearch)}`)
   });
 
   const schedulesQuery = useQuery<ExamSchedule[]>({
@@ -201,15 +235,24 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
       )
   });
 
+  const profile = meQuery.data?.profile ?? null;
+  const isAuthenticated = Boolean(meQuery.data?.authenticated && profile);
+
   const dashboardQuery = useQuery<DashboardResponse>({
     queryKey: ['dashboard'],
     queryFn: () => fetchJson('/api/dashboard'),
-    enabled: meQuery.isSuccess
+    enabled: isAuthenticated
   });
 
   const channelsQuery = useQuery<CommunityChannel[]>({
     queryKey: ['channels'],
     queryFn: () => fetchJson('/api/community/channels')
+  });
+
+  const adminUsersQuery = useQuery<UserProfile[]>({
+    queryKey: ['admin-users'],
+    queryFn: () => fetchJson('/api/admin/users'),
+    enabled: Boolean(profile?.is_admin)
   });
 
   useEffect(() => {
@@ -221,8 +264,35 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
   const messagesQuery = useQuery<CommunityMessage[]>({
     queryKey: ['messages', selectedChannelId],
     queryFn: () => fetchJson(`/api/community/messages?channelId=${selectedChannelId}`),
-    enabled: Boolean(selectedChannelId)
+    enabled: Boolean(selectedChannelId && isAuthenticated)
   });
+
+  useEffect(() => {
+    if (!profile) return;
+
+    setOnboardingForm({
+      full_name: profile.full_name ?? profile.display_name ?? '',
+      school_name: profile.school_name ?? '',
+      gender: profile.gender ?? '回答しない',
+      club_name: profile.club_name ?? ''
+    });
+  }, [profile?.id, profile?.display_name, profile?.full_name, profile?.school_name, profile?.gender, profile?.club_name]);
+
+  useEffect(() => {
+    const handleLoginSuccess = async () => {
+      await queryClient.invalidateQueries({ queryKey: ['me'] });
+      navigate('dashboard');
+    };
+
+    window.addEventListener('line-login-success', handleLoginSuccess);
+    return () => window.removeEventListener('line-login-success', handleLoginSuccess);
+  }, [queryClient]);
+
+  useEffect(() => {
+    if (currentTab === 'admin' && !profile?.is_admin) {
+      navigate('home');
+    }
+  }, [currentTab, profile?.is_admin]);
 
   const studyLogMutation = useMutation({
     mutationFn: () =>
@@ -268,7 +338,19 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
     }
   });
 
-  const profile = meQuery.data?.profile;
+  const onboardingMutation = useMutation({
+    mutationFn: () =>
+      fetchJson('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(onboardingForm)
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['me'] });
+      navigate('dashboard');
+    }
+  });
+
   const channels = channelsQuery.data ?? [];
   const activeChannel = channels.find((channel) => channel.id === selectedChannelId);
   const universities = universitiesQuery.data ?? [];
@@ -280,8 +362,16 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
     return [...yearSet];
   }, [problems]);
 
-  const headerAction = meQuery.isSuccess ? (
-    <div className="flex items-center gap-3">
+  const tabItems = useMemo<Array<{ key: TabKey; label: string; icon: typeof LayoutGrid }>>(() => {
+    const items: Array<{ key: TabKey; label: string; icon: typeof LayoutGrid }> = [...baseTabs];
+    if (profile?.is_admin) {
+      items.push({ key: 'admin', label: '管理者', icon: ShieldCheck });
+    }
+    return items;
+  }, [profile?.is_admin]);
+
+  const headerAction = isAuthenticated ? (
+    <div className="flex flex-wrap items-center justify-end gap-3">
       <div className="hidden rounded-full border border-gold-200 bg-gold-50 px-4 py-2 text-sm font-medium text-gold-900 md:inline-flex">
         {profile?.is_premium ? 'プレミアム' : '無料プラン'}
       </div>
@@ -297,36 +387,39 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
     </button>
   );
 
+  const needsOnboarding = Boolean(isAuthenticated && profile && !profile.onboarding_completed);
+
   return (
     <>
       <LiffBootstrap liffId={env.lineLiffId()} enableDevLogin={env.enableDevLogin} />
       <div className="min-h-screen bg-gradient-to-b from-beige via-white to-slate-50 text-slate-900">
         <header className="sticky top-0 z-40 border-b border-white/60 bg-white/90 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-            <div>
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+            <div className="min-w-0">
               <div className="flex items-center gap-3">
                 <div className="rounded-2xl bg-navy px-3 py-2 text-white shadow-soft">Re-try Pro</div>
-                <div>
-                  <div className="text-lg font-semibold text-navy-900">医学部学士編入りとらい</div>
-                  <div className="text-sm text-slate-500">ゼロから医師への道しるべ</div>
+                <div className="min-w-0">
+                  <div className="text-base font-semibold text-navy-900 sm:text-lg">医学部学士編入これだけ</div>
+                  <div className="text-sm text-slate-500">受験情報・学習管理・コミュニティをひとつに</div>
                 </div>
               </div>
             </div>
             {headerAction}
           </div>
           <div className="mx-auto flex max-w-7xl gap-2 overflow-x-auto px-4 pb-4 sm:px-6 lg:px-8">
-            {tabs.map((tab) => {
+            {tabItems.map((tab) => {
               const Icon = tab.icon;
               const active = currentTab === tab.key;
               return (
                 <button
                   key={tab.key}
                   onClick={() => navigate(tab.key)}
-                  className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
                     active ? 'bg-navy text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
+                  <span>{tab.label}</span>
                 </button>
               );
             })}
@@ -336,14 +429,14 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
         <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
           {currentTab === 'home' ? (
             <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-              <section className="overflow-hidden rounded-[32px] bg-navy p-8 text-white shadow-soft">
+              <section className="overflow-hidden rounded-[32px] bg-navy p-6 text-white shadow-soft sm:p-8">
                 <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm">
                   <Sparkles className="h-4 w-4 text-gold-300" />
-                  実データ運用向けに再構築済み
+                  医学部学士編入に必要な情報を一か所で確認
                 </div>
-                <h1 className="mt-6 text-4xl font-bold leading-tight sm:text-5xl">医学部学士編入これだけアプリ</h1>
-                <p className="mt-4 max-w-2xl text-base leading-7 text-slate-200">
-                  LIFFでLINE UIDを取得し、Supabase Custom JWT を httpOnly Cookie に保存。以後の API リクエストは認証済みセッションで Supabase に接続し、大学情報・試験日程・過去問・学習記録・コミュニティ投稿をすべて動的に取得します。
+                <h1 className="mt-6 text-3xl font-bold leading-tight sm:text-5xl">必要な情報へ、迷わず最短でたどり着ける受験アプリ</h1>
+                <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-200 sm:text-base">
+                  大学情報、受験スケジュール、過去問、学習記録、コミュニティをまとめて使えます。スマホでも読みやすいレイアウトで、必要な情報をサッと確認できるように整えています。
                 </p>
                 <div className="mt-8 grid gap-4 sm:grid-cols-3">
                   <Stat label="収録大学数" value={summaryQuery.data ? `${summaryQuery.data.universities}` : '...'} icon={UniversityIcon} />
@@ -351,48 +444,52 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
                   <Stat label="コミュニティ投稿数" value={summaryQuery.data ? `${summaryQuery.data.messages}` : '...'} icon={MessageSquare} />
                 </div>
                 <div className="mt-8 flex flex-wrap gap-3">
-                  <button onClick={() => navigate('universities')} className="rounded-full bg-gold px-5 py-3 font-semibold text-navy-900">
-                    大学情報を見る
+                  <button onClick={() => navigate('schedules')} className="rounded-full bg-gold px-5 py-3 font-semibold text-navy-900">
+                    受験スケジュールを見る
                   </button>
-                  <button onClick={() => navigate('problems')} className="rounded-full border border-white/30 px-5 py-3 font-semibold text-white">
-                    過去問を確認
+                  <button
+                    onClick={() => (isAuthenticated ? navigate('dashboard') : dispatchLogin())}
+                    className="rounded-full border border-white/30 px-5 py-3 font-semibold text-white"
+                  >
+                    {isAuthenticated ? 'ダッシュボードへ進む' : 'LINEでログインして始める'}
                   </button>
                 </div>
               </section>
 
-              <SectionCard title="実装状況" subtitle="この zip でそのまま開発を継続できる構成です。">
-                <ul className="space-y-3 text-sm leading-6 text-slate-600">
-                  <li>・Next.js App Router に移行し、Tailwind CSS ベースへ全面刷新</li>
-                  <li>・Supabase への Fetch / Insert / Update を API Route で実装</li>
-                  <li>・LINE LIFF 初期化、ID Token 検証、Custom JWT 発行を実装</li>
-                  <li>・React Query による画面遷移・タブ切替時の再取得を実装</li>
-                  <li>・ローディング UI / 例外時のフィードバックを全主要画面に実装</li>
-                </ul>
-                <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-                  <div className="font-medium text-slate-900">ログイン状態</div>
-                  {meQuery.isSuccess ? (
-                    <div className="mt-2 flex items-center gap-3">
-                      <div
-                        className="flex h-10 w-10 items-center justify-center rounded-full text-white"
-                        style={{ backgroundColor: profile?.avatar_color ?? '#1B2A4A' }}
-                      >
-                        {profile?.display_name?.slice(0, 1) ?? 'U'}
-                      </div>
-                      <div>
-                        <div className="font-medium text-slate-900">{profile?.display_name}</div>
-                        <div className="text-xs text-slate-500">{profile?.is_admin ? '管理者' : '一般ユーザー'} / {profile?.is_premium ? 'プレミアム' : '無料'}</div>
-                      </div>
+              <div className="grid gap-6">
+                <SectionCard title="新着情報" subtitle="はじめての方も、今ほしい情報からすぐ確認できます。">
+                  <div className="space-y-4">
+                    {newsItems.map((item) => (
+                      <article key={item.title} className="rounded-2xl bg-slate-50 p-4">
+                        <div className="font-medium text-navy-900">{item.title}</div>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+                      </article>
+                    ))}
+                  </div>
+                </SectionCard>
+
+                <SectionCard title="はじめての使い方" subtitle="3ステップで必要な準備を進められます。">
+                  <div className="grid gap-3 text-sm leading-6 text-slate-600">
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <div className="font-semibold text-navy-900">1. 試験日程を確認</div>
+                      <p className="mt-1">2025・2026・2027年度を切り替えながら、出願や試験日を確認できます。</p>
                     </div>
-                  ) : (
-                    <p className="mt-2">LINEログイン前でも公開データは閲覧可能です。学習管理・投稿系はログイン後に利用できます。</p>
-                  )}
-                </div>
-              </SectionCard>
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <div className="font-semibold text-navy-900">2. 過去問と大学情報を比較</div>
+                      <p className="mt-1">出題傾向や配点イメージを見ながら、志望校の優先順位を整理できます。</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <div className="font-semibold text-navy-900">3. LINEログイン後に学習管理</div>
+                      <p className="mt-1">初回登録を済ませると、ダッシュボードとコミュニティをすぐ利用できます。</p>
+                    </div>
+                  </div>
+                </SectionCard>
+              </div>
             </div>
           ) : null}
 
           {currentTab === 'universities' ? (
-            <SectionCard title="大学情報データベース" subtitle="Supabase の universities テーブルから動的取得しています。">
+            <SectionCard title="大学情報データベース" subtitle="地域や科目傾向を絞り込みながら、志望校選びに役立つ情報を探せます。">
               <div className="mb-6 grid gap-4 lg:grid-cols-[1fr_1fr_1.2fr]">
                 <select value={region} onChange={(e) => setRegion(e.target.value)} className="rounded-2xl border border-slate-300 px-4 py-3">
                   {regions.map((value) => (
@@ -433,9 +530,9 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
           ) : null}
 
           {currentTab === 'schedules' ? (
-            <SectionCard title="受験スケジュール" subtitle="exam_schedules テーブルを year で絞り込み、大学マスタと JOIN しています。">
+            <SectionCard title="受験スケジュール" subtitle="2025年度・2026年度・2027年度を切り替えながら、出願から試験までの流れを確認できます。">
               <div className="mb-6 flex flex-wrap gap-3">
-                {[`${new Date().getFullYear()}`, `${new Date().getFullYear() + 1}`, '2026'].map((year) => (
+                {scheduleYears.map((year) => (
                   <button
                     key={year}
                     onClick={() => setSelectedYear(year)}
@@ -447,7 +544,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
               </div>
               {schedulesQuery.isLoading ? <LoadingGrid /> : null}
               {schedulesQuery.isError ? <ErrorState message={schedulesQuery.error.message} onRetry={() => schedulesQuery.refetch()} /> : null}
-              {schedulesQuery.isSuccess && schedulesQuery.data.length === 0 ? <EmptyState title="日程データがありません" description="Supabase seed または管理画面から日程を登録してください。" /> : null}
+              {schedulesQuery.isSuccess && schedulesQuery.data.length === 0 ? <EmptyState title="この年度の日程はまだ登録されていません" description="管理者が日程を追加するとここに表示されます。" /> : null}
               {schedulesQuery.isSuccess ? (
                 <div className="grid gap-4 lg:grid-cols-2">
                   {schedulesQuery.data.map((schedule) => (
@@ -460,12 +557,12 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
                         <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-500">{schedule.year}年度</span>
                       </div>
                       <dl className="mt-4 grid gap-3 text-sm text-slate-600">
-                        <div className="flex justify-between rounded-2xl bg-white px-4 py-3"><dt>出願開始</dt><dd>{formatDate(schedule.application_start)}</dd></div>
-                        <div className="flex justify-between rounded-2xl bg-white px-4 py-3"><dt>出願締切</dt><dd>{formatDate(schedule.application_end)}</dd></div>
-                        <div className="flex justify-between rounded-2xl bg-white px-4 py-3"><dt>一次試験</dt><dd>{formatDate(schedule.first_exam_date)}</dd></div>
-                        <div className="flex justify-between rounded-2xl bg-white px-4 py-3"><dt>二次試験</dt><dd>{formatDate(schedule.second_exam_date)}</dd></div>
+                        <div className="flex justify-between gap-4 rounded-2xl bg-white px-4 py-3"><dt>出願開始</dt><dd>{formatDate(schedule.application_start)}</dd></div>
+                        <div className="flex justify-between gap-4 rounded-2xl bg-white px-4 py-3"><dt>出願締切</dt><dd>{formatDate(schedule.application_end)}</dd></div>
+                        <div className="flex justify-between gap-4 rounded-2xl bg-white px-4 py-3"><dt>一次試験</dt><dd>{formatDate(schedule.first_exam_date)}</dd></div>
+                        <div className="flex justify-between gap-4 rounded-2xl bg-white px-4 py-3"><dt>二次試験</dt><dd>{formatDate(schedule.second_exam_date)}</dd></div>
                       </dl>
-                      {schedule.memo ? <p className="mt-4 text-sm text-slate-600">{schedule.memo}</p> : null}
+                      {schedule.memo ? <p className="mt-4 text-sm leading-6 text-slate-600">{schedule.memo}</p> : null}
                     </div>
                   ))}
                 </div>
@@ -474,7 +571,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
           ) : null}
 
           {currentTab === 'problems' ? (
-            <SectionCard title="過去問アーカイブ" subtitle="problems テーブルからフィルタリングし、必要に応じて progress を再取得します。">
+            <SectionCard title="過去問アーカイブ" subtitle="科目・大学・年度で絞り込みながら、必要な問題にすばやくアクセスできます。">
               <div className="mb-6 grid gap-4 lg:grid-cols-3">
                 <select value={problemSubject} onChange={(e) => setProblemSubject(e.target.value)} className="rounded-2xl border border-slate-300 px-4 py-3">
                   {subjectOptions.map((value) => (
@@ -496,7 +593,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
 
               {problemsQuery.isLoading ? <LoadingGrid /> : null}
               {problemsQuery.isError ? <ErrorState message={problemsQuery.error.message} onRetry={() => problemsQuery.refetch()} /> : null}
-              {problemsQuery.isSuccess && problems.length === 0 ? <EmptyState title="過去問がありません" description="検索条件を変えるか、seed データを追加してください。" /> : null}
+              {problemsQuery.isSuccess && problems.length === 0 ? <EmptyState title="過去問がありません" description="検索条件を変えて再度お試しください。" /> : null}
 
               {problemsQuery.isSuccess ? (
                 <div className="space-y-4">
@@ -512,7 +609,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
                             {problem.is_premium ? <span className="rounded-full bg-gold-100 px-3 py-1 text-gold-900">プレミアム</span> : <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">無料公開</span>}
                           </div>
                           <h3 className="mt-3 text-lg font-semibold text-navy-900">{problem.question}</h3>
-                          {problem.options ? <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">選択肢: {problem.options}</p> : null}
+                          {problem.options ? <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">選択肢: {problem.options}</p> : null}
                         </div>
                         <div className="text-sm text-slate-500">{problemProgress[problem.id] ? `進捗: ${problemProgress[problem.id]}` : '未記録'}</div>
                       </div>
@@ -527,7 +624,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
                           <div className="flex items-center gap-2 text-gold-900"><Lock className="h-4 w-4" /> プレミアム会員のみ解答を閲覧できます。</div>
                         )}
                       </div>
-                      {meQuery.isSuccess ? (
+                      {isAuthenticated ? (
                         <div className="mt-4 flex flex-wrap gap-3">
                           <button onClick={() => progressMutation.mutate({ problemId: problem.id, status: 'correct' })} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white">正解</button>
                           <button onClick={() => progressMutation.mutate({ problemId: problem.id, status: 'wrong' })} className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white">要復習</button>
@@ -544,9 +641,9 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
           ) : null}
 
           {currentTab === 'dashboard' ? (
-            meQuery.isSuccess ? (
+            isAuthenticated ? (
               <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
-                <SectionCard title="学習ダッシュボード" subtitle="study_logs と problem_progress を集計して表示しています。">
+                <SectionCard title="学習ダッシュボード" subtitle="学習時間、正答率、復習対象をまとめて確認できます。">
                   {dashboardQuery.isLoading ? <LoadingGrid /> : null}
                   {dashboardQuery.isError ? <ErrorState message={dashboardQuery.error.message} onRetry={() => dashboardQuery.refetch()} /> : null}
                   {dashboardQuery.data ? (
@@ -564,9 +661,9 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
                             {dashboardQuery.data.subjectBreakdown.length === 0 ? <EmptyState title="進捗データがありません" description="問題採点または学習記録を登録してください。" /> : null}
                             {dashboardQuery.data.subjectBreakdown.map((item) => (
                               <div key={item.subject}>
-                                <div className="flex items-center justify-between text-sm">
+                                <div className="flex items-center justify-between gap-4 text-sm">
                                   <span className="font-medium text-slate-700">{item.subject}</span>
-                                  <span className="text-slate-500">{item.accuracy}% / {item.minutes}分</span>
+                                  <span className="text-right text-slate-500">{item.accuracy}% / {item.minutes}分</span>
                                 </div>
                                 <div className="mt-2 h-3 rounded-full bg-slate-200">
                                   <div className="h-3 rounded-full bg-navy" style={{ width: `${Math.max(item.accuracy, 5)}%` }} />
@@ -609,7 +706,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
                     </>
                   ) : null}
                 </SectionCard>
-                <SectionCard title="学習記録を追加" subtitle="Insert 処理は /api/study-logs 経由で Supabase に保存します。">
+                <SectionCard title="学習記録を追加" subtitle="その日の勉強内容を残して、進捗を見える化できます。">
                   <div className="space-y-4">
                     <select value={studyLog.subject} onChange={(e) => setStudyLog((current) => ({ ...current, subject: e.target.value }))} className="w-full rounded-2xl border border-slate-300 px-4 py-3">
                       {subjectOptions.filter((subject) => subject !== 'all').map((subject) => (
@@ -629,14 +726,14 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
                 </SectionCard>
               </div>
             ) : (
-              <AccessGate title="ダッシュボードはログイン後に利用できます" description="学習記録の追加、統計の集計、ストリーク計算は認証済みユーザー単位で保存されます。" />
+              <AccessGate title="ダッシュボードはログイン後に利用できます" description="LINEログイン後に学習時間、正答率、復習対象をひとまとめで確認できます。" />
             )
           ) : null}
 
           {currentTab === 'community' ? (
-            meQuery.isSuccess ? (
+            isAuthenticated ? (
               <div className="grid gap-6 xl:grid-cols-[0.35fr_0.65fr]">
-                <SectionCard title="チャンネル" subtitle="community_channels テーブルを動的表示しています。">
+                <SectionCard title="チャンネル" subtitle="受験仲間や経験者の投稿を確認できます。">
                   {channelsQuery.isLoading ? <LoadingGrid /> : null}
                   {channelsQuery.isError ? <ErrorState message={channelsQuery.error.message} onRetry={() => channelsQuery.refetch()} /> : null}
                   <div className="space-y-3">
@@ -645,7 +742,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <div className="font-medium">#{channel.name}</div>
-                            <div className={`text-xs ${selectedChannelId === channel.id ? 'text-slate-200' : 'text-slate-500'}`}>{channel.description}</div>
+                            <div className={`text-xs leading-5 ${selectedChannelId === channel.id ? 'text-slate-200' : 'text-slate-500'}`}>{channel.description}</div>
                           </div>
                           {channel.is_premium ? <Crown className="h-4 w-4" /> : null}
                         </div>
@@ -655,7 +752,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
                 </SectionCard>
                 <SectionCard title={activeChannel ? `#${activeChannel.name}` : 'メッセージ'} subtitle={activeChannel?.description ?? 'チャンネルを選択してください。'}>
                   {activeChannel?.is_premium && !profile?.is_premium ? (
-                    <AccessGate title="このチャンネルはプレミアム限定です" description="投稿・閲覧にはプレミアム権限が必要です。必要であれば user_profiles.is_premium を true に更新してください。" />
+                    <AccessGate title="このチャンネルはプレミアム限定です" description="プレミアム対象チャンネルの閲覧・投稿にはプレミアム権限が必要です。" />
                   ) : (
                     <>
                       {messagesQuery.isLoading ? <LoadingGrid /> : null}
@@ -692,15 +789,121 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
                 </SectionCard>
               </div>
             ) : (
-              <AccessGate title="コミュニティ機能はログイン後に利用できます" description="投稿は LINE UID と紐づいたプロフィール単位で保存されます。" />
+              <AccessGate title="コミュニティ機能はログイン後に利用できます" description="LINEログイン後にそのままコミュニティへ進み、情報交換や相談ができます。" />
             )
           ) : null}
 
-          {/* 追加: 外部の画面コンテンツがここに展開されます */}
-          {children}
+          {currentTab === 'admin' && profile?.is_admin ? (
+            <SectionCard title="利用者データ管理" subtitle="初回登録で集めた在籍校・名前・性別・部活を、管理者が一覧で確認できます。">
+              {adminUsersQuery.isLoading ? <LoadingGrid /> : null}
+              {adminUsersQuery.isError ? <ErrorState message={adminUsersQuery.error.message} onRetry={() => adminUsersQuery.refetch()} /> : null}
+              {adminUsersQuery.data?.length === 0 ? <EmptyState title="登録ユーザーがまだいません" description="ユーザーがLINEログインして初回登録を完了するとここに表示されます。" /> : null}
+              {adminUsersQuery.data ? (
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {adminUsersQuery.data.map((user) => (
+                    <article key={user.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full text-white" style={{ backgroundColor: user.avatar_color ?? '#1B2A4A' }}>
+                            {(user.full_name || user.display_name || 'U').slice(0, 1)}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-navy-900">{user.full_name || '未登録'}</div>
+                            <div className="text-xs text-slate-500">LINE名: {user.display_name}</div>
+                          </div>
+                        </div>
+                        {user.is_admin ? <span className="rounded-full bg-navy px-3 py-1 text-xs text-white">管理者</span> : null}
+                      </div>
+                      <div className="mt-4 space-y-2 rounded-2xl bg-white p-4">
+                        <div><span className="font-medium text-slate-900">在籍校:</span> {user.school_name || '未登録'}</div>
+                        <div><span className="font-medium text-slate-900">性別:</span> {user.gender || '未登録'}</div>
+                        <div><span className="font-medium text-slate-900">部活:</span> {user.club_name || '未登録'}</div>
+                        <div><span className="font-medium text-slate-900">登録状況:</span> {user.onboarding_completed ? '完了' : '未完了'}</div>
+                        <div><span className="font-medium text-slate-900">登録日:</span> {formatDateTime(user.created_at)}</div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </SectionCard>
+          ) : null}
 
+          {children}
         </main>
       </div>
+
+      {needsOnboarding ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl sm:p-8">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-navy p-3 text-white">
+                <Users className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-navy-900">初回登録をお願いします</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  LINEログイン後、最初の1回だけ「在籍している学校・名前・性別・部活」を登録してください。登録が完了すると、ダッシュボードとコミュニティをそのまま利用できます。
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="mb-2 block text-sm font-medium text-slate-700">名前</label>
+                <input
+                  value={onboardingForm.full_name}
+                  onChange={(e) => setOnboardingForm((current) => ({ ...current, full_name: e.target.value }))}
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3"
+                  placeholder="山田 太郎"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="mb-2 block text-sm font-medium text-slate-700">在籍している学校</label>
+                <input
+                  value={onboardingForm.school_name}
+                  onChange={(e) => setOnboardingForm((current) => ({ ...current, school_name: e.target.value }))}
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3"
+                  placeholder="◯◯大学 大学院 / ◯◯高校 など"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">性別</label>
+                <select
+                  value={onboardingForm.gender}
+                  onChange={(e) => setOnboardingForm((current) => ({ ...current, gender: e.target.value as UserGender }))}
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3"
+                >
+                  {genderOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">部活</label>
+                <input
+                  value={onboardingForm.club_name}
+                  onChange={(e) => setOnboardingForm((current) => ({ ...current, club_name: e.target.value }))}
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3"
+                  placeholder="サッカー部 / 吹奏楽部 / なし など"
+                />
+              </div>
+            </div>
+
+            {onboardingMutation.isError ? <div className="mt-4"><ErrorState message={onboardingMutation.error.message} /></div> : null}
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                onClick={() => onboardingMutation.mutate()}
+                disabled={onboardingMutation.isPending}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-navy px-5 py-3 font-semibold text-white disabled:opacity-50"
+              >
+                {onboardingMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+                登録してはじめる
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 };

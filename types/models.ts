@@ -1,7 +1,14 @@
+export type UserGender = '男性' | '女性' | 'その他' | '回答しない';
+
 export type UserProfile = {
   id: string;
   line_user_id: string;
   display_name: string;
+  full_name: string | null;
+  school_name: string | null;
+  gender: UserGender | null;
+  club_name: string | null;
+  onboarding_completed: boolean;
   avatar_url: string | null;
   avatar_color: string | null;
   is_premium: boolean;

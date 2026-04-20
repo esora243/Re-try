@@ -4,6 +4,11 @@ create table if not exists public.user_profiles (
   id uuid primary key default gen_random_uuid(),
   line_user_id text not null unique,
   display_name text not null,
+  full_name text,
+  school_name text,
+  gender text check (gender in ('男性', '女性', 'その他', '回答しない')),
+  club_name text,
+  onboarding_completed boolean not null default false,
   avatar_url text,
   avatar_color text default '#1B2A4A',
   is_premium boolean not null default false,
@@ -12,6 +17,12 @@ create table if not exists public.user_profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.user_profiles add column if not exists full_name text;
+alter table public.user_profiles add column if not exists school_name text;
+alter table public.user_profiles add column if not exists gender text;
+alter table public.user_profiles add column if not exists club_name text;
+alter table public.user_profiles add column if not exists onboarding_completed boolean not null default false;
 
 create table if not exists public.universities (
   id uuid primary key default gen_random_uuid(),
@@ -136,18 +147,23 @@ alter table public.study_logs enable row level security;
 alter table public.community_channels enable row level security;
 alter table public.community_messages enable row level security;
 
+drop policy if exists "profiles_select_self" on public.user_profiles;
 create policy "profiles_select_self" on public.user_profiles
 for select using (auth.uid() = id);
 
+drop policy if exists "profiles_update_self" on public.user_profiles;
 create policy "profiles_update_self" on public.user_profiles
 for update using (auth.uid() = id);
 
+drop policy if exists "profiles_insert_self" on public.user_profiles;
 create policy "profiles_insert_self" on public.user_profiles
 for insert with check (auth.uid() = id or auth.role() = 'service_role');
 
+drop policy if exists "universities_public_read" on public.universities;
 create policy "universities_public_read" on public.universities
 for select using (true);
 
+drop policy if exists "universities_admin_write" on public.universities;
 create policy "universities_admin_write" on public.universities
 for all using (
   exists (select 1 from public.user_profiles p where p.id = auth.uid() and p.is_admin = true)
@@ -155,9 +171,11 @@ for all using (
   exists (select 1 from public.user_profiles p where p.id = auth.uid() and p.is_admin = true)
 );
 
+drop policy if exists "exam_schedules_public_read" on public.exam_schedules;
 create policy "exam_schedules_public_read" on public.exam_schedules
 for select using (true);
 
+drop policy if exists "exam_schedules_admin_write" on public.exam_schedules;
 create policy "exam_schedules_admin_write" on public.exam_schedules
 for all using (
   exists (select 1 from public.user_profiles p where p.id = auth.uid() and p.is_admin = true)
@@ -165,9 +183,11 @@ for all using (
   exists (select 1 from public.user_profiles p where p.id = auth.uid() and p.is_admin = true)
 );
 
+drop policy if exists "problems_public_read" on public.problems;
 create policy "problems_public_read" on public.problems
 for select using (true);
 
+drop policy if exists "problems_admin_write" on public.problems;
 create policy "problems_admin_write" on public.problems
 for all using (
   exists (select 1 from public.user_profiles p where p.id = auth.uid() and p.is_admin = true)
@@ -175,23 +195,30 @@ for all using (
   exists (select 1 from public.user_profiles p where p.id = auth.uid() and p.is_admin = true)
 );
 
+drop policy if exists "progress_select_self" on public.problem_progress;
 create policy "progress_select_self" on public.problem_progress
 for select using (auth.uid() = user_id);
 
+drop policy if exists "progress_write_self" on public.problem_progress;
 create policy "progress_write_self" on public.problem_progress
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "study_logs_select_self" on public.study_logs;
 create policy "study_logs_select_self" on public.study_logs
 for select using (auth.uid() = user_id);
 
+drop policy if exists "study_logs_write_self" on public.study_logs;
 create policy "study_logs_write_self" on public.study_logs
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "channels_public_read" on public.community_channels;
 create policy "channels_public_read" on public.community_channels
 for select using (true);
 
+drop policy if exists "messages_read_public" on public.community_messages;
 create policy "messages_read_public" on public.community_messages
 for select using (true);
 
+drop policy if exists "messages_write_authenticated" on public.community_messages;
 create policy "messages_write_authenticated" on public.community_messages
 for insert with check (auth.uid() = user_id);

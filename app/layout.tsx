@@ -1,31 +1,24 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
+import { Providers } from '@/components/providers';
 
-import { LiffBootstrap } from "@/components/liff-bootstrap";
-// 既存のProvidersコンポーネントを読み込む（ファイルパスは実際の配置場所に合わせてください）
-import { Providers } from "@/components/providers";
-
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: "Re-try",
-  description: "医学部編入プラットフォーム",
+  title: '医学部学士編入これだけアプリ',
+  description: '医学部学士編入の受験情報、過去問、学習管理、コミュニティをまとめて使えるプラットフォーム'
 };
 
 export default function RootLayout({
-  children,
+  children
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
     <html lang="ja">
       <body className={inter.className}>
-        {/* 既存のProvidersで全体を囲み、React Queryを有効化します */}
-        <Providers>
-          <LiffBootstrap liffId={process.env.NEXT_PUBLIC_LIFF_ID} />
-          {children}
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

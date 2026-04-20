@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient, createAnonClient } from '@/lib/supabase';
+import { env } from '@/lib/env';
 import { getSessionFromCookies, SESSION_COOKIE, signSessionToken } from '@/lib/session';
 
 const lineVerifySchema = z.object({
@@ -15,11 +16,12 @@ const avatarPalette = ['#1B2A4A', '#3B82F6', '#7C3AED', '#059669', '#EA580C', '#
 
 export const verifyLinePayload = async (payload: unknown) => {
   const data = lineVerifySchema.parse(payload);
+  const clientId = env.lineLiffId();
 
-  if (data.idToken && process.env.NEXT_PUBLIC_LINE_LIFF_ID) {
+  if (data.idToken && clientId) {
     const body = new URLSearchParams({
       id_token: data.idToken,
-      client_id: process.env.NEXT_PUBLIC_LINE_LIFF_ID
+      client_id: clientId
     });
 
     const response = await fetch('https://api.line.me/oauth2/v2.1/verify', {
@@ -45,11 +47,7 @@ export const verifyLinePayload = async (payload: unknown) => {
 
 export const upsertLineProfile = async (data: Awaited<ReturnType<typeof verifyLinePayload>>) => {
   const admin = createAdminClient();
-  const existing = await admin
-    .from('user_profiles')
-    .select('*')
-    .eq('line_user_id', data.lineUserId)
-    .maybeSingle();
+  const existing = await admin.from('user_profiles').select('*').eq('line_user_id', data.lineUserId).maybeSingle();
 
   if (existing.error) {
     throw existing.error;
@@ -80,7 +78,8 @@ export const upsertLineProfile = async (data: Awaited<ReturnType<typeof verifyLi
       line_user_id: data.lineUserId,
       display_name: data.displayName,
       avatar_url: data.pictureUrl ?? null,
-      avatar_color: avatarColor
+      avatar_color: avatarColor,
+      onboarding_completed: false
     })
     .select('*')
     .single();
@@ -93,6 +92,8 @@ export const buildAuthResponse = (profile: {
   id: string;
   line_user_id: string;
   display_name: string;
+  onboarding_completed?: boolean;
+  is_admin?: boolean;
 }) => {
   const token = signSessionToken({
     sub: profile.id,
@@ -102,7 +103,13 @@ export const buildAuthResponse = (profile: {
     display_name: profile.display_name
   });
 
-  const response = NextResponse.json({ ok: true, userId: profile.id });
+  const response = NextResponse.json({
+    ok: true,
+    userId: profile.id,
+    needsOnboarding: !profile.onboarding_completed,
+    isAdmin: Boolean(profile.is_admin)
+  });
+
   response.cookies.set({
     name: SESSION_COOKIE,
     value: token,
@@ -112,6 +119,7 @@ export const buildAuthResponse = (profile: {
     path: '/',
     maxAge: 60 * 60 * 24 * 30
   });
+
   return response;
 };
 
