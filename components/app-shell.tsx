@@ -51,6 +51,11 @@ type ProblemsResponse = {
   profile: Pick<UserProfile, 'id' | 'is_premium'> | null;
 };
 
+type CheckoutResponse = {
+  url: string;
+  customerId?: string;
+};
+
 type OnboardingPayload = {
   full_name: string;
   school_name: string;
@@ -98,6 +103,7 @@ const fetchJson = async <T,>(input: string, init?: RequestInit): Promise<T> => {
 
 const dispatchLogin = () => window.dispatchEvent(new Event('line-login-request'));
 const dispatchLogout = () => window.dispatchEvent(new Event('line-logout-request'));
+const premiumPriceLabel = new Intl.NumberFormat('ja-JP').format(env.premiumPriceYen());
 
 const SectionCard = ({ title, subtitle, children }: React.PropsWithChildren<{ title: string; subtitle?: string }>) => (
   <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
@@ -152,17 +158,38 @@ const Stat = ({ label, value, icon: Icon }: { label: string; value: string; icon
   </div>
 );
 
-const AccessGate = ({ title, description }: { title: string; description: string }) => (
+const PremiumBadge = ({ compact = false }: { compact?: boolean }) => (
+  <span className={`inline-flex items-center gap-1 rounded-full border border-gold-200 bg-gold-100 font-semibold text-gold-900 ${compact ? 'px-2.5 py-1 text-[11px]' : 'px-3 py-1.5 text-xs'}`}>
+    <Crown className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+    Premium
+  </span>
+);
+
+const UpgradeButton = ({ onClick, fullWidth = false, disabled = false }: { onClick: () => void; fullWidth?: boolean; disabled?: boolean }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    className={`inline-flex items-center justify-center gap-2 rounded-full bg-gold px-4 py-2.5 text-sm font-semibold text-navy-900 shadow-soft transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 ${fullWidth ? 'w-full' : ''}`}
+  >
+    <Crown className="h-4 w-4" />
+    プレミアムにアップグレード
+  </button>
+);
+
+const AccessGate = ({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) => (
   <div className="rounded-3xl border border-gold-200 bg-gold-50 p-6 text-sm text-gold-900">
     <div className="flex items-center gap-3 text-lg font-semibold">
       <Lock className="h-5 w-5" />
       {title}
     </div>
     <p className="mt-2 leading-6">{description}</p>
-    <button onClick={dispatchLogin} className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#06C755] px-4 py-2 text-white">
-      <UserRound className="h-4 w-4" />
-      LINEでログイン
-    </button>
+    <div className="mt-4 flex flex-wrap gap-3">
+      <button onClick={dispatchLogin} className="inline-flex items-center gap-2 rounded-full bg-[#06C755] px-4 py-2 text-white">
+        <UserRound className="h-4 w-4" />
+        LINEでログイン
+      </button>
+      {action}
+    </div>
   </div>
 );
 
@@ -276,7 +303,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
       gender: profile.gender ?? '回答しない',
       club_name: profile.club_name ?? ''
     });
-  }, [profile?.id, profile?.display_name, profile?.full_name, profile?.school_name, profile?.gender, profile?.club_name]);
+  }, [profile]);
 
   useEffect(() => {
     const handleLoginSuccess = async () => {
@@ -354,7 +381,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
   const channels = channelsQuery.data ?? [];
   const activeChannel = channels.find((channel) => channel.id === selectedChannelId);
   const universities = universitiesQuery.data ?? [];
-  const problems = problemsQuery.data?.problems ?? [];
+  const problems = useMemo(() => problemsQuery.data?.problems ?? [], [problemsQuery.data?.problems]);
   const problemProgress = problemsQuery.data?.progress ?? {};
   const years = useMemo(() => {
     const yearSet = new Set<string>(['all']);
@@ -387,7 +414,8 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
     </button>
   );
 
-  const needsOnboarding = Boolean(isAuthenticated && profile && !profile.onboarding_completed);
+  const profileHasRegistration = Boolean(profile?.full_name && profile?.school_name && profile?.club_name && profile?.gender);
+  const needsOnboarding = Boolean(isAuthenticated && profile && !(profile.onboarding_completed || profileHasRegistration));
 
   return (
     <>
@@ -818,7 +846,7 @@ export const AppShell = ({ children }: { children?: React.ReactNode }) => {
                         <div><span className="font-medium text-slate-900">在籍校:</span> {user.school_name || '未登録'}</div>
                         <div><span className="font-medium text-slate-900">性別:</span> {user.gender || '未登録'}</div>
                         <div><span className="font-medium text-slate-900">部活:</span> {user.club_name || '未登録'}</div>
-                        <div><span className="font-medium text-slate-900">登録状況:</span> {user.onboarding_completed ? '完了' : '未完了'}</div>
+                        <div><span className="font-medium text-slate-900">登録状況:</span> {user.onboarding_completed || (user.full_name && user.school_name && user.club_name && user.gender) ? '完了' : '未完了'}</div>
                         <div><span className="font-medium text-slate-900">登録日:</span> {formatDateTime(user.created_at)}</div>
                       </div>
                     </article>

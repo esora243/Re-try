@@ -12,6 +12,7 @@ create table if not exists public.user_profiles (
   avatar_url text,
   avatar_color text default '#1B2A4A',
   is_premium boolean not null default false,
+  stripe_customer_id text,
   is_admin boolean not null default false,
   free_views_used integer not null default 0,
   created_at timestamptz not null default now(),
@@ -23,6 +24,8 @@ alter table public.user_profiles add column if not exists school_name text;
 alter table public.user_profiles add column if not exists gender text;
 alter table public.user_profiles add column if not exists club_name text;
 alter table public.user_profiles add column if not exists onboarding_completed boolean not null default false;
+alter table public.user_profiles add column if not exists is_premium boolean not null default false;
+alter table public.user_profiles add column if not exists stripe_customer_id text;
 
 create table if not exists public.universities (
   id uuid primary key default gen_random_uuid(),
@@ -95,6 +98,10 @@ create table if not exists public.community_channels (
   member_count integer not null default 0,
   created_at timestamptz not null default now()
 );
+
+create unique index if not exists user_profiles_stripe_customer_id_key
+  on public.user_profiles (stripe_customer_id)
+  where stripe_customer_id is not null;
 
 create table if not exists public.community_messages (
   id uuid primary key default gen_random_uuid(),

@@ -1,8 +1,9 @@
 import { z } from 'zod';
-import { createAnonClient } from '@/lib/supabase';
+import { createAdminClient, createAnonClient } from '@/lib/supabase';
 import { getSessionFromCookies } from '@/lib/session';
 import { fail, ok } from '@/lib/api';
 import { requireSession } from '@/lib/auth';
+import { normalizeUserProfile } from '@/lib/profile';
 
 const problemSchema = z.object({
   university_id: z.string().uuid().nullable().optional(),
@@ -23,12 +24,8 @@ export async function GET(request: Request) {
     const year = searchParams.get('year');
     const universityId = searchParams.get('universityId');
 
-    const { token } = getSessionFromCookies();
-    const client = createAnonClient(token ?? undefined);
-
-    const profileResult = token
-      ? await client.from('user_profiles').select('id, is_premium').limit(1).single()
-      : { data: null, error: null as null | Error };
+    const { claims } = getSessionFromCookies();
+    const client = createAnonClient();
 
     let query = client
       .from('problems')
@@ -43,18 +40,23 @@ export async function GET(request: Request) {
     const problemsResult = await query;
     if (problemsResult.error) throw problemsResult.error;
 
+    let profile: { id: string; is_premium: boolean; is_admin?: boolean } | null = null;
     let progressRows: Array<{ problem_id: string; status: 'correct' | 'wrong' | 'bookmarked' }> = [];
-    if (profileResult.data) {
-      const progressResult = await client
-        .from('problem_progress')
-        .select('problem_id, status')
-        .eq('user_id', profileResult.data.id);
+
+    if (claims?.sub) {
+      const admin = createAdminClient();
+      const profileResult = await admin.from('user_profiles').select('*').eq('id', claims.sub).single();
+      if (profileResult.error) throw profileResult.error;
+      const normalizedProfile = normalizeUserProfile(profileResult.data);
+      profile = normalizedProfile ? { id: normalizedProfile.id, is_premium: normalizedProfile.is_premium, is_admin: normalizedProfile.is_admin } : null;
+
+      const progressResult = await admin.from('problem_progress').select('problem_id, status').eq('user_id', claims.sub);
       if (progressResult.error) throw progressResult.error;
       progressRows = progressResult.data;
     }
 
     const progress = Object.fromEntries(progressRows.map((row) => [row.problem_id, row.status]));
-    const canViewPremium = profileResult.data?.is_premium ?? false;
+    const canViewPremium = Boolean(profile?.is_premium || profile?.is_admin);
 
     const problems = problemsResult.data.map((problem) => ({
       ...problem,
@@ -66,7 +68,7 @@ export async function GET(request: Request) {
     return ok({
       problems,
       progress,
-      profile: profileResult.data ?? null
+      profile: profile ?? null
     });
   } catch (error) {
     return fail(error instanceof Error ? error.message : '過去問の取得に失敗しました。');

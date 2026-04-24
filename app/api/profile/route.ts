@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { requireSession } from '@/lib/auth';
 import { fail, ok } from '@/lib/api';
+import { mergeUserProfileWithShadow, saveProfileShadow } from '@/lib/profile-shadow';
 
 const onboardingSchema = z.object({
   full_name: z.string().trim().min(1, '名前を入力してください。'),
@@ -16,18 +17,19 @@ export async function PATCH(request: Request) {
     const { client, profile } = await requireSession();
     const payload = onboardingSchema.parse(await request.json());
 
-    const result = await client
-      .from('user_profiles')
-      .update({
-        ...payload,
-        onboarding_completed: true,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', profile.id)
-      .select('*')
-      .single();
+    const updates = {
+      ...payload,
+      onboarding_completed: true,
+      updated_at: new Date().toISOString()
+    };
 
-    if (result.error) throw result.error;
+    const result = await client.from('user_profiles').update(updates).eq('id', profile.id).select('*').single();
+
+    if (result.error) {
+      const shadow = await saveProfileShadow(client, profile.id, payload);
+      return ok(mergeUserProfileWithShadow(profile, shadow));
+    }
+
     return ok(result.data);
   } catch (error) {
     return fail(error instanceof Error ? error.message : 'プロフィール登録に失敗しました。', 400);

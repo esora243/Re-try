@@ -13,6 +13,7 @@ export type UserProfile = {
   avatar_color: string | null;
   is_premium: boolean;
   is_admin: boolean;
+  stripe_customer_id: string | null;
   free_views_used: number;
   created_at: string;
   updated_at: string;

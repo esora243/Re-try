@@ -1,13 +1,14 @@
 import { requireSession } from '@/lib/auth';
 import { fail, ok } from '@/lib/api';
 import { calculateStreak } from '@/lib/utils';
+import { PROFILE_SHADOW_SUBJECT } from '@/lib/profile-shadow';
 
 export async function GET() {
   try {
     const { client, profile } = await requireSession();
 
     const [logsResult, progressResult, problemsResult] = await Promise.all([
-      client.from('study_logs').select('*').eq('user_id', profile.id).order('logged_on', { ascending: false }),
+      client.from('study_logs').select('*').eq('user_id', profile.id).neq('subject', PROFILE_SHADOW_SUBJECT).order('logged_on', { ascending: false }),
       client.from('problem_progress').select('problem_id, status').eq('user_id', profile.id),
       client.from('problems').select('*, university:universities(id, name, region)').order('year', { ascending: false })
     ]);

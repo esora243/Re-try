@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { requireSession } from '@/lib/auth';
 import { fail, ok } from '@/lib/api';
+import { isProfileShadowSubject, PROFILE_SHADOW_SUBJECT } from '@/lib/profile-shadow';
 
 const studyLogSchema = z.object({
   subject: z.string().min(1),
@@ -16,6 +17,7 @@ export async function GET() {
       .from('study_logs')
       .select('*')
       .eq('user_id', profile.id)
+      .neq('subject', PROFILE_SHADOW_SUBJECT)
       .order('logged_on', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(20);
@@ -31,6 +33,10 @@ export async function POST(request: Request) {
   try {
     const { client, profile } = await requireSession();
     const payload = studyLogSchema.parse(await request.json());
+
+    if (isProfileShadowSubject(payload.subject)) {
+      return fail('この科目名は予約済みです。別の科目名を入力してください。', 400);
+    }
 
     const result = await client
       .from('study_logs')

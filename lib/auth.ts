@@ -1,9 +1,11 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createAdminClient, createAnonClient } from '@/lib/supabase';
+import { createAdminClient } from '@/lib/supabase';
 import { env } from '@/lib/env';
 import { getSessionFromCookies, SESSION_COOKIE, signSessionToken } from '@/lib/session';
+import { hasCompletedOnboarding, isMissingColumnError, normalizeUserProfile } from '@/lib/profile';
+import { fetchLatestProfileShadow, mergeUserProfileWithShadow } from '@/lib/profile-shadow';
 
 const lineVerifySchema = z.object({
   lineUserId: z.string().min(1),
@@ -16,7 +18,7 @@ const avatarPalette = ['#1B2A4A', '#3B82F6', '#7C3AED', '#059669', '#EA580C', '#
 
 export const verifyLinePayload = async (payload: unknown) => {
   const data = lineVerifySchema.parse(payload);
-  const clientId = env.lineLiffId();
+  const clientId = env.lineClientId();
 
   if (data.idToken && clientId) {
     const body = new URLSearchParams({
@@ -45,6 +47,15 @@ export const verifyLinePayload = async (payload: unknown) => {
   return data;
 };
 
+const withProfileShadow = async (admin: ReturnType<typeof createAdminClient>, profile: Record<string, unknown>) => {
+  const shadow = await fetchLatestProfileShadow(admin, String(profile.id));
+  const normalized = mergeUserProfileWithShadow(profile, shadow) ?? normalizeUserProfile(profile);
+  if (!normalized) {
+    throw new Error('プロフィールの正規化に失敗しました。');
+  }
+  return normalized;
+};
+
 export const upsertLineProfile = async (data: Awaited<ReturnType<typeof verifyLinePayload>>) => {
   const admin = createAdminClient();
   const existing = await admin.from('user_profiles').select('*').eq('line_user_id', data.lineUserId).maybeSingle();
@@ -69,23 +80,34 @@ export const upsertLineProfile = async (data: Awaited<ReturnType<typeof verifyLi
       .single();
 
     if (update.error) throw update.error;
-    return update.data;
+    return withProfileShadow(admin, update.data);
   }
 
-  const insert = await admin
-    .from('user_profiles')
-    .insert({
-      line_user_id: data.lineUserId,
-      display_name: data.displayName,
-      avatar_url: data.pictureUrl ?? null,
-      avatar_color: avatarColor,
-      onboarding_completed: false
-    })
-    .select('*')
-    .single();
+  const insertPayload = {
+    line_user_id: data.lineUserId,
+    display_name: data.displayName,
+    avatar_url: data.pictureUrl ?? null,
+    avatar_color: avatarColor,
+    onboarding_completed: false
+  };
+
+  let insert = await admin.from('user_profiles').insert(insertPayload).select('*').single();
+
+  if (insert.error && isMissingColumnError(insert.error, 'onboarding_completed')) {
+    insert = await admin
+      .from('user_profiles')
+      .insert({
+        line_user_id: data.lineUserId,
+        display_name: data.displayName,
+        avatar_url: data.pictureUrl ?? null,
+        avatar_color: avatarColor
+      })
+      .select('*')
+      .single();
+  }
 
   if (insert.error) throw insert.error;
-  return insert.data;
+  return withProfileShadow(admin, insert.data);
 };
 
 export const buildAuthResponse = (profile: {
@@ -93,21 +115,30 @@ export const buildAuthResponse = (profile: {
   line_user_id: string;
   display_name: string;
   onboarding_completed?: boolean;
+  full_name?: string | null;
+  school_name?: string | null;
+  gender?: string | null;
+  club_name?: string | null;
   is_admin?: boolean;
 }) => {
+  const normalized = normalizeUserProfile(profile);
+  if (!normalized) {
+    throw new Error('プロフィールの生成に失敗しました。');
+  }
+
   const token = signSessionToken({
-    sub: profile.id,
+    sub: normalized.id,
     role: 'authenticated',
     aud: 'authenticated',
-    line_user_id: profile.line_user_id,
-    display_name: profile.display_name
+    line_user_id: normalized.line_user_id,
+    display_name: normalized.display_name
   });
 
   const response = NextResponse.json({
     ok: true,
-    userId: profile.id,
-    needsOnboarding: !profile.onboarding_completed,
-    isAdmin: Boolean(profile.is_admin)
+    userId: normalized.id,
+    needsOnboarding: !hasCompletedOnboarding(normalized),
+    isAdmin: normalized.is_admin
   });
 
   response.cookies.set({
@@ -142,16 +173,18 @@ export const requireSession = async () => {
     throw new Error('認証セッションがありません。LINEログインを実行してください。');
   }
 
-  const client = createAnonClient(token);
+  const client = createAdminClient();
   const profileResult = await client.from('user_profiles').select('*').eq('id', claims.sub).single();
   if (profileResult.error || !profileResult.data) {
     throw new Error('プロフィールの取得に失敗しました。');
   }
 
+  const profile = await withProfileShadow(client, profileResult.data);
+
   return {
     token,
     claims,
     client,
-    profile: profileResult.data
+    profile
   };
 };

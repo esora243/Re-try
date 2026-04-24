@@ -6,7 +6,7 @@ import type { SessionClaims } from '@/types/models';
 export const SESSION_COOKIE = 'retry_session';
 
 export const signSessionToken = (claims: Omit<SessionClaims, 'iat' | 'exp'>) =>
-  jwt.sign(claims, env.supabaseJwtSecret(), {
+  jwt.sign(claims, env.sessionSecret(), {
     algorithm: 'HS256',
     expiresIn: '30d'
   });
@@ -14,7 +14,7 @@ export const signSessionToken = (claims: Omit<SessionClaims, 'iat' | 'exp'>) =>
 export const verifySessionToken = (token?: string | null): SessionClaims | null => {
   if (!token) return null;
   try {
-    return jwt.verify(token, env.supabaseJwtSecret(), {
+    return jwt.verify(token, env.sessionSecret(), {
       algorithms: ['HS256']
     }) as SessionClaims;
   } catch {
