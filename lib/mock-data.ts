@@ -1,4 +1,4 @@
-import type { CommunityChannel, CommunityMessage, ExamSchedule, Problem, StudyLog, SummaryResponse, University, UserProfile } from '@/types/models';
+import type { BoardCategory, BoardReply, BoardThread, CommunityChannel, CommunityMessage, ExamSchedule, Problem, StudyLog, SummaryResponse, University, UserProfile } from '@/types/models';
 
 type ProgressStatus = 'correct' | 'wrong' | 'bookmarked';
 
@@ -7,6 +7,8 @@ type MockStore = {
   studyLogs: StudyLog[];
   progress: Array<{ id: string; user_id: string; problem_id: string; status: ProgressStatus; updated_at: string; created_at: string }>;
   messages: CommunityMessage[];
+  boardThreads: BoardThread[];
+  boardReplies: BoardReply[];
 };
 
 const globalStore = globalThis as typeof globalThis & { __retryMockStore?: MockStore };
@@ -174,16 +176,85 @@ const createDefaultProfile = (lineUserId: string, displayName: string, pictureUr
   updated_at: nowIso()
 });
 
+const initialBoardThreads: BoardThread[] = [
+  {
+    id: 'thread-welcome',
+    title: 'Re-try 掲示板へようこそ',
+    category: '雑談',
+    body: 'ここは受験生同士がスレッド形式で質問・情報交換をできる掲示板です。まずは自己紹介からどうぞ。',
+    user_id: 'tutor-1',
+    display_name: 'Re-try Tutor',
+    avatar_color: '#1B2A4A',
+    is_premium: false,
+    is_pinned: true,
+    is_closed: false,
+    reply_count: 1,
+    last_reply_at: nowIso(),
+    created_at: nowIso(),
+    updated_at: nowIso()
+  },
+  {
+    id: 'thread-study-method',
+    title: '生命科学の勉強法・参考書情報',
+    category: '勉強法',
+    body: '使ってよかった参考書や、進め方をシェアしましょう。「何周したか」より「何を身につけたか」を書くと読みやすいです。',
+    user_id: 'tutor-1',
+    display_name: 'Re-try Tutor',
+    avatar_color: '#1B2A4A',
+    is_premium: false,
+    is_pinned: false,
+    is_closed: false,
+    reply_count: 0,
+    last_reply_at: null,
+    created_at: nowIso(),
+    updated_at: nowIso()
+  },
+  {
+    id: 'thread-premium-strategy',
+    title: '【プレミアム】二次面接の対策例',
+    category: '面接',
+    body: 'このスレッドはプレミアム会員限定です。面接ターンや評価された言い回しをシェアしましょう。',
+    user_id: 'tutor-1',
+    display_name: 'Re-try Tutor',
+    avatar_color: '#1B2A4A',
+    is_premium: true,
+    is_pinned: false,
+    is_closed: false,
+    reply_count: 0,
+    last_reply_at: null,
+    created_at: nowIso(),
+    updated_at: nowIso()
+  }
+];
+
+const initialBoardReplies: BoardReply[] = [
+  {
+    id: uuid(),
+    thread_id: 'thread-welcome',
+    user_id: 'tutor-1',
+    display_name: 'Re-try Tutor',
+    avatar_color: '#1B2A4A',
+    content: '規約：個人情報の公開・誇張表現・誘引限定のリンクは NG です。受験生同士が安心して使える場を俱主しましょう。',
+    is_tutor: true,
+    created_at: nowIso()
+  }
+];
+
 export const getMockStore = () => {
   if (!globalStore.__retryMockStore) {
     globalStore.__retryMockStore = {
       profiles: {},
       studyLogs: [],
       progress: [],
-      messages: [...initialMessages]
+      messages: [...initialMessages],
+      boardThreads: [...initialBoardThreads],
+      boardReplies: [...initialBoardReplies]
     };
   }
-  return globalStore.__retryMockStore;
+  const store = globalStore.__retryMockStore;
+  if (!store.boardThreads) store.boardThreads = [...initialBoardThreads];
+  if (!store.boardReplies) store.boardReplies = [...initialBoardReplies];
+  return store;
 };
 
 export const upsertMockProfile = (lineUserId: string, displayName: string, pictureUrl?: string | null) => {
@@ -221,12 +292,69 @@ export const updateMockProfile = (id: string, patch: Partial<UserProfile>) => {
   return next;
 };
 
-export const getMockSummary = (): SummaryResponse => ({
-  universities: mockUniversities.length,
-  problems: mockProblems.length,
-  channels: mockChannels.length,
-  messages: getMockStore().messages.length
-});
+export const getMockSummary = (): SummaryResponse => {
+  const store = getMockStore();
+  return {
+    universities: mockUniversities.length,
+    problems: mockProblems.length,
+    channels: mockChannels.length,
+    messages: store.messages.length,
+    boardThreads: store.boardThreads.length
+  };
+};
+
+export const listMockBoardThreads = (filters?: { category?: BoardCategory; includePremium?: boolean }) => {
+  const store = getMockStore();
+  return store.boardThreads
+    .filter((thread) => (filters?.category ? thread.category === filters.category : true))
+    .filter((thread) => (filters?.includePremium ? true : !thread.is_premium))
+    .sort((a, b) => {
+      if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
+      const aTime = a.last_reply_at ?? a.created_at;
+      const bTime = b.last_reply_at ?? b.created_at;
+      return bTime.localeCompare(aTime);
+    });
+};
+
+export const getMockBoardThread = (threadId: string) =>
+  getMockStore().boardThreads.find((thread) => thread.id === threadId) ?? null;
+
+export const createMockBoardThread = (input: Omit<BoardThread, 'id' | 'reply_count' | 'last_reply_at' | 'created_at' | 'updated_at' | 'is_pinned' | 'is_closed'> & {
+  is_pinned?: boolean;
+  is_closed?: boolean;
+}) => {
+  const store = getMockStore();
+  const thread: BoardThread = {
+    ...input,
+    id: uuid(),
+    is_pinned: input.is_pinned ?? false,
+    is_closed: input.is_closed ?? false,
+    reply_count: 0,
+    last_reply_at: null,
+    created_at: nowIso(),
+    updated_at: nowIso()
+  };
+  store.boardThreads.unshift(thread);
+  return thread;
+};
+
+export const listMockBoardReplies = (threadId: string) =>
+  getMockStore()
+    .boardReplies.filter((reply) => reply.thread_id === threadId)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+export const createMockBoardReply = (input: Omit<BoardReply, 'id' | 'created_at'>) => {
+  const store = getMockStore();
+  const reply: BoardReply = { ...input, id: uuid(), created_at: nowIso() };
+  store.boardReplies.push(reply);
+  const thread = store.boardThreads.find((item) => item.id === input.thread_id);
+  if (thread) {
+    thread.reply_count += 1;
+    thread.last_reply_at = reply.created_at;
+    thread.updated_at = reply.created_at;
+  }
+  return reply;
+};
 
 export const listMockMessages = (channelId: string) => getMockStore().messages.filter((item) => item.channel_id === channelId);
 

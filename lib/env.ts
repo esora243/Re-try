@@ -32,7 +32,7 @@ const readNumber = (key: string, fallback: number) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const hasValue = (value?: string | null) => Boolean(value && value.trim());
+const hasValue = (value?: string | null) => Boolean(value && value.trim().length > 0);
 
 export const env = {
   appUrl: () => normalizeAppUrl(readFirst(['APP_URL', 'NEXT_PUBLIC_APP_URL', 'NEXT_PUBLIC_VERCEL_URL'], false)),
@@ -51,11 +51,20 @@ export const env = {
   lineLiffId: () => readFirst(['NEXT_PUBLIC_LIFF_ID', 'NEXT_PUBLIC_LINE_LIFF_ID'], false),
   lineChannelId: () => readFirst(['LINE_CHANNEL_ID', 'NEXT_PUBLIC_LINE_CHANNEL_ID', 'NEXT_PUBLIC_LINE_CLIENT_ID'], false),
   enableDevLogin: process.env.NEXT_PUBLIC_ENABLE_DEV_LOGIN === 'true',
+  hasSupabaseConfig: () => Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+  hasSupabaseAdminConfig: () => Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
   stripeSecretKey: () => read('STRIPE_SECRET_KEY', false),
   stripeWebhookSecret: () => read('STRIPE_WEBHOOK_SECRET', false),
   stripePremiumAmount: () => readNumber('STRIPE_PREMIUM_AMOUNT', 2980),
-  stripePremiumName: () => process.env.STRIPE_PREMIUM_NAME?.trim() || 'Re-try Pro プレミアム',
+  stripePremiumName: () => process.env.STRIPE_PREMIUM_NAME?.trim() || 'Re-try プレミアム',
   stripePremiumDescription: () =>
     process.env.STRIPE_PREMIUM_DESCRIPTION?.trim() ||
-    '医学部学士編入の受験生向けに、プレミアム過去問解説と限定コミュニティを解放します。'
+    '医学部学士編入の受験生向けに、プレミアム過去問解説と限定コミュニティを解放します。',
+  businessServiceName: () => process.env.BUSINESS_SERVICE_NAME?.trim() || 'Re-try',
+  businessOperatorType: () => process.env.BUSINESS_OPERATOR_TYPE?.trim() || '個人事業',
+  businessSellerName: () => process.env.BUSINESS_SELLER_NAME?.trim() || 'Re-try 運営事務局',
+  businessRepresentative: () => process.env.BUSINESS_REPRESENTATIVE_NAME?.trim() || '運営責任者',
+  businessContactEmail: () => process.env.BUSINESS_CONTACT_EMAIL?.trim() || 'support@example.com',
+  businessAddressNotice: () => process.env.BUSINESS_ADDRESS_NOTICE?.trim() || '請求があった場合は遅滞なく開示します。',
+  businessPhoneNotice: () => process.env.BUSINESS_PHONE_NOTICE?.trim() || '請求があった場合は遅滞なく開示します。'
 };

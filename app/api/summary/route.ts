@@ -10,11 +10,12 @@ export async function GET() {
     }
 
     const client = createPublicClient();
-    const [universities, problems, channels, messages] = await Promise.all([
+    const [universities, problems, channels, messages, boardThreads] = await Promise.all([
       client.from('universities').select('*', { head: true, count: 'exact' }),
       client.from('problems').select('*', { head: true, count: 'exact' }),
       client.from('community_channels').select('*', { head: true, count: 'exact' }),
-      client.from('community_messages').select('*', { head: true, count: 'exact' })
+      client.from('community_messages').select('*', { head: true, count: 'exact' }),
+      client.from('board_threads').select('*', { head: true, count: 'exact' })
     ]);
 
     const firstError = [universities.error, problems.error, channels.error, messages.error].find(Boolean);
@@ -24,7 +25,8 @@ export async function GET() {
       universities: universities.count ?? 0,
       problems: problems.count ?? 0,
       channels: channels.count ?? 0,
-      messages: messages.count ?? 0
+      messages: messages.count ?? 0,
+      boardThreads: boardThreads.error ? 0 : boardThreads.count ?? 0
     });
   } catch (error) {
     return fail(error instanceof Error ? error.message : '集計取得に失敗しました。', 500);

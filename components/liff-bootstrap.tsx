@@ -22,6 +22,23 @@ type Props = {
 };
 
 const LOGIN_SUCCESS_EVENT = 'line-login-success';
+const LOGIN_ATTEMPT_KEY = 'retry-line-login-attempt';
+const LOGIN_COOLDOWN_MS = 10_000;
+
+const getLastLoginAttempt = () => {
+  if (typeof window === 'undefined') return 0;
+  return Number(window.sessionStorage.getItem(LOGIN_ATTEMPT_KEY) ?? 0);
+};
+
+const markLoginAttempt = () => {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.setItem(LOGIN_ATTEMPT_KEY, String(Date.now()));
+};
+
+const clearLoginAttempt = () => {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.removeItem(LOGIN_ATTEMPT_KEY);
+};
 
 export const LiffBootstrap = ({ liffId, enableDevLogin = false }: Props) => {
   const queryClient = useQueryClient();
@@ -56,11 +73,13 @@ export const LiffBootstrap = ({ liffId, enableDevLogin = false }: Props) => {
         throw new Error(body?.error ?? 'LINE認証に失敗しました。');
       }
 
+      clearLoginAttempt();
       setMessage('');
       await invalidateSession();
       window.dispatchEvent(new Event(LOGIN_SUCCESS_EVENT));
     } catch (error) {
       console.error(error);
+      clearLoginAttempt();
       setMessage(error instanceof Error ? error.message : 'LINEログインに失敗しました。');
     } finally {
       authInFlightRef.current = false;
@@ -80,6 +99,7 @@ export const LiffBootstrap = ({ liffId, enableDevLogin = false }: Props) => {
       }
     } catch (error) {
       console.error(error);
+      clearLoginAttempt();
       setMessage('LINEログインの準備に失敗しました。時間をおいて再度お試しください。');
       liffInitStartedRef.current = false;
     }
@@ -97,6 +117,11 @@ export const LiffBootstrap = ({ liffId, enableDevLogin = false }: Props) => {
         }
         if (window.liff) {
           if (!window.liff.isLoggedIn()) {
+            const lastAttempt = getLastLoginAttempt();
+            if (lastAttempt && Date.now() - lastAttempt < LOGIN_COOLDOWN_MS) {
+              return;
+            }
+            markLoginAttempt();
             window.liff.login({ redirectUri: window.location.href });
             return;
           }
@@ -118,14 +143,14 @@ export const LiffBootstrap = ({ liffId, enableDevLogin = false }: Props) => {
               idToken: null
             })
           });
-          if (!response.ok) {
-            throw new Error('開発用ログインに失敗しました。');
-          }
+          if (!response.ok) throw new Error('開発用ログインに失敗しました。');
+          clearLoginAttempt();
           setMessage('');
           await invalidateSession();
           window.dispatchEvent(new Event(LOGIN_SUCCESS_EVENT));
         } catch (error) {
           console.error(error);
+          clearLoginAttempt();
           setMessage(error instanceof Error ? error.message : 'ログインに失敗しました。');
         }
         return;
@@ -135,6 +160,7 @@ export const LiffBootstrap = ({ liffId, enableDevLogin = false }: Props) => {
     };
 
     const logoutHandler = async () => {
+      clearLoginAttempt();
       await fetch('/api/auth/logout', { method: 'POST' });
       if (window.liff?.isLoggedIn()) {
         window.liff.logout();

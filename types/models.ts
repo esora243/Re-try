@@ -132,6 +132,37 @@ export type SummaryResponse = {
   problems: number;
   channels: number;
   messages: number;
+  boardThreads: number;
+};
+
+export type BoardCategory = '相談' | '勉強法' | '出願' | '面接' | '雑談';
+
+export type BoardThread = {
+  id: string;
+  title: string;
+  category: BoardCategory;
+  body: string;
+  user_id: string;
+  display_name: string;
+  avatar_color: string | null;
+  is_premium: boolean;
+  is_pinned: boolean;
+  is_closed: boolean;
+  reply_count: number;
+  last_reply_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BoardReply = {
+  id: string;
+  thread_id: string;
+  user_id: string;
+  display_name: string;
+  avatar_color: string | null;
+  content: string;
+  is_tutor: boolean;
+  created_at: string;
 };
 
 export type SessionClaims = {
