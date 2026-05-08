@@ -51,8 +51,6 @@ export const env = {
   lineLiffId: () => readFirst(['NEXT_PUBLIC_LIFF_ID', 'NEXT_PUBLIC_LINE_LIFF_ID'], false),
   lineChannelId: () => readFirst(['LINE_CHANNEL_ID', 'NEXT_PUBLIC_LINE_CHANNEL_ID', 'NEXT_PUBLIC_LINE_CLIENT_ID'], false),
   enableDevLogin: process.env.NEXT_PUBLIC_ENABLE_DEV_LOGIN === 'true',
-  hasSupabaseConfig: () => Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
-  hasSupabaseAdminConfig: () => Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
   stripeSecretKey: () => read('STRIPE_SECRET_KEY', false),
   stripeWebhookSecret: () => read('STRIPE_WEBHOOK_SECRET', false),
   stripePremiumAmount: () => readNumber('STRIPE_PREMIUM_AMOUNT', 30000),
