@@ -18,6 +18,10 @@ const config: Config = {
           100: '#FCE8B6',
           200: '#F5D27A',
           900: '#7A5800'
+        },
+        sky: {
+          50: '#EEF6FF',
+          100: '#DBEAFE'
         }
       },
       boxShadow: {

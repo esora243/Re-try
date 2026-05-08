@@ -21,6 +21,8 @@ export const formatDateTime = (value?: string | null) => {
   }
 };
 
+export const formatPriceJPY = (amount: number) => `${amount.toLocaleString('ja-JP')}円`;
+
 export const calculateStreak = (logs: Pick<StudyLog, 'logged_on'>[]) => {
   if (!logs.length) return 0;
   const uniqueDays = [...new Set(logs.map((log) => log.logged_on))]
@@ -44,4 +46,13 @@ export const calculateStreak = (logs: Pick<StudyLog, 'logged_on'>[]) => {
     break;
   }
   return streak;
+};
+
+export const compareByDateDesc = <T extends { created_at: string }>(a: T, b: T) =>
+  b.created_at.localeCompare(a.created_at);
+
+export const filterBySearch = <T,>(items: T[], keyword: string, getter: (item: T) => string) => {
+  if (!keyword) return items;
+  const lower = keyword.toLowerCase();
+  return items.filter((item) => getter(item).toLowerCase().includes(lower));
 };

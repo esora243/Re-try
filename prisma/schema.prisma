@@ -8,15 +8,15 @@ datasource db {
 }
 
 model UserProfile {
-  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  lineUserId           String    @unique @map("line_user_id")
-  displayName          String    @map("display_name")
-  isPremium            Boolean   @default(false) @map("is_premium")
-  stripeCustomerId     String?   @unique @map("stripe_customer_id")
-  stripeSubscriptionId String?   @unique @map("stripe_subscription_id")
-  premiumActivatedAt   DateTime? @map("premium_activated_at") @db.Timestamptz(6)
-  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lineUserId          String    @unique @map("line_user_id")
+  displayName         String    @map("display_name")
+  isPremium           Boolean   @default(false) @map("is_premium")
+  stripeCustomerId    String?   @unique @map("stripe_customer_id")
+  stripePaymentId     String?   @unique @map("stripe_payment_id")
+  premiumActivatedAt  DateTime? @map("premium_activated_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("user_profiles")
 }

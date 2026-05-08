@@ -55,11 +55,11 @@ export const env = {
   hasSupabaseAdminConfig: () => Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
   stripeSecretKey: () => read('STRIPE_SECRET_KEY', false),
   stripeWebhookSecret: () => read('STRIPE_WEBHOOK_SECRET', false),
-  stripePremiumAmount: () => readNumber('STRIPE_PREMIUM_AMOUNT', 2980),
-  stripePremiumName: () => process.env.STRIPE_PREMIUM_NAME?.trim() || 'Re-try プレミアム',
+  stripePremiumAmount: () => readNumber('STRIPE_PREMIUM_AMOUNT', 30000),
+  stripePremiumName: () => process.env.STRIPE_PREMIUM_NAME?.trim() || 'Re-try 永久ライセンス',
   stripePremiumDescription: () =>
     process.env.STRIPE_PREMIUM_DESCRIPTION?.trim() ||
-    '医学部学士編入の受験生向けに、プレミアム過去問解説と限定コミュニティを解放します。',
+    '一度のお支払いで、過去問解説・掲示板・学習ツールなど Re-try のすべての機能をずっと使えます。',
   businessServiceName: () => process.env.BUSINESS_SERVICE_NAME?.trim() || 'Re-try',
   businessOperatorType: () => process.env.BUSINESS_OPERATOR_TYPE?.trim() || '個人事業',
   businessSellerName: () => process.env.BUSINESS_SELLER_NAME?.trim() || 'Re-try 運営事務局',

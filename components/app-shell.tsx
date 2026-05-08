@@ -8,26 +8,39 @@ import {
   ArrowRight,
   BookOpen,
   CalendarDays,
-  ChartColumnBig,
   CheckCircle2,
   Crown,
-  LayoutGrid,
+  Filter,
   Loader2,
   Lock,
   LogOut,
   MessageSquare,
   Pin,
   Plus,
+  Search,
   ShieldCheck,
   Sparkles,
-  Target,
   University as UniversityIcon,
   UserRound
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { LiffBootstrap } from '@/components/liff-bootstrap';
+import { BottomNav, type BottomTabKey } from '@/components/bottom-nav';
 import { publicLineConfig } from '@/lib/line';
-import { formatDate, formatDateTime } from '@/lib/utils';
+import { formatDate, formatDateTime, formatPriceJPY } from '@/lib/utils';
+import {
+  Badge,
+  Card,
+  EmptyState,
+  FieldLabel,
+  ProgressBar,
+  SectionCard,
+  SelectField,
+  SkeletonGrid,
+  TapButton,
+  TextField,
+  TextareaField
+} from '@/components/ui';
 import type {
   BoardCategory,
   BoardReply,
@@ -43,173 +56,58 @@ import type {
   UserProfile
 } from '@/types/models';
 
-type TabKey = 'home' | 'universities' | 'schedules' | 'problems' | 'dashboard' | 'community' | 'admin';
+type TabKey = BottomTabKey | 'admin';
 
-type MeResponse = {
-  authenticated: boolean;
-  profile: UserProfile | null;
-};
-
+type MeResponse = { authenticated: boolean; profile: UserProfile | null };
 type ProblemsResponse = {
   problems: Problem[];
   progress: Record<string, 'correct' | 'wrong' | 'bookmarked'>;
   profile: Pick<UserProfile, 'id' | 'is_premium'> | null;
 };
-
-type OnboardingPayload = {
-  full_name: string;
-  school_name: string;
-  gender: UserGender;
-  club_name: string;
-};
-
-const tabs: Array<{ key: Exclude<TabKey, 'admin'>; label: string; icon: typeof LayoutGrid }> = [
-  { key: 'home', label: 'ホーム', icon: LayoutGrid },
-  { key: 'universities', label: '大学比較', icon: UniversityIcon },
-  { key: 'schedules', label: '日程', icon: CalendarDays },
-  { key: 'problems', label: '過去問', icon: BookOpen },
-  { key: 'dashboard', label: '学習記録', icon: ChartColumnBig },
-  { key: 'community', label: '掲示板', icon: MessageSquare }
-];
-
-const boardCategories: Array<'all' | BoardCategory> = ['all', '相談', '勉強法', '出願', '面接', '雑談'];
+type OnboardingPayload = { full_name: string; school_name: string; gender: UserGender; club_name: string };
 
 const subjectOptions = ['all', '生命科学', '数学', '英語', '化学', '物理', '小論文'];
 const genderOptions: UserGender[] = ['男性', '女性', 'その他', '回答しない'];
 const regionOptions = ['all', '北海道・東北', '関東', '中部', '近畿', '中国・四国', '九州'];
 const scheduleYears = ['2025', '2026', '2027'];
+const boardCategories: Array<'all' | BoardCategory> = ['all', '相談', '勉強法', '出願', '面接', '雑談'];
+const problemFilterOptions = [
+  { key: 'all', label: 'すべて' },
+  { key: 'unfinished', label: '未着手' },
+  { key: 'wrong', label: '復習対象' },
+  { key: 'bookmarked', label: '保存' }
+] as const;
 
-const featureCards = [
-  {
-    title: '志望校比較',
-    description: '地域と大学ごとの特徴をまとめて確認。迷いやすい比較軸を整理できます。',
-    tab: 'universities' as const,
-    icon: UniversityIcon
-  },
-  {
-    title: '試験日程の見える化',
-    description: '出願・一次・二次の流れを年度別に確認し、直前の取りこぼしを防ぎます。',
-    tab: 'schedules' as const,
-    icon: CalendarDays
-  },
-  {
-    title: '過去問で仕上げる',
-    description: '無料問題で感触を掴み、必要ならプレミアムで解説と限定機能へ進めます。',
-    tab: 'problems' as const,
-    icon: BookOpen
-  }
-];
-
-const howToUseSteps = [
-  {
-    title: 'まず志望校を絞る',
-    body: '大学比較で地域・出題傾向・メモを確認し、自分に合う候補校を絞り込みます。'
-  },
-  {
-    title: '日程から逆算する',
-    body: '出願締切と試験日を確認し、今週やるべき勉強を逆算します。'
-  },
-  {
-    title: '過去問と記録で改善する',
-    body: '過去問の進捗と学習ログを残し、苦手分野をダッシュボードで見直します。'
-  }
-];
-
-const trustPoints = [
-  '受験行動に直結する情報だけを、見やすく一画面で整理',
-  'LINEログインで使い始めやすく、学習記録まで継続しやすい設計',
-  '無料で試し、必要な時だけプレミアムへ進めるわかりやすい導線'
-];
-
-const premiumBenefits = [
-  'プレミアム問題の解答・解説を解放',
-  '限定コミュニティの閲覧・投稿が可能',
-  '今後追加される上位機能を優先的に利用'
-];
-
-const weeklyTips = [
-  '出願締切が近い大学から、志望順位を先に確定する',
-  '過去問は「解けた / 解けない」より「なぜ迷ったか」を残す',
-  '生命科学・英語・数学のうち、今週の主軸科目を1つ決める'
-];
+const PREMIUM_PRICE = 30000;
 
 const fetchJson = async <T,>(input: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(input, init);
   const body = (await response.json().catch(() => null)) as T & { error?: string };
-  if (!response.ok) throw new Error(body?.error ?? 'データ取得に失敗しました。');
+  if (!response.ok) throw new Error(body?.error ?? '通信に失敗しました。少し時間をおいて再度お試しください。');
   return body;
 };
 
 const requestLogin = () => window.dispatchEvent(new Event('line-login-request'));
 const requestLogout = () => window.dispatchEvent(new Event('line-logout-request'));
 
-const SectionCard = ({ title, subtitle, action, children }: { title: string; subtitle?: string; action?: React.ReactNode; children: React.ReactNode }) => (
-  <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h2 className="text-lg font-semibold text-navy-900 sm:text-xl">{title}</h2>
-        {subtitle ? <p className="mt-1 text-sm leading-6 text-slate-500">{subtitle}</p> : null}
-      </div>
-      {action}
-    </div>
-    {children}
-  </section>
-);
-
-const StatCard = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-soft">
-    <div className="text-xs font-medium tracking-wide text-slate-500">{label}</div>
-    <div className="mt-2 text-2xl font-bold tracking-tight text-navy-900">{value}</div>
-  </div>
-);
-
-const AccessGate = ({
-  title,
-  description,
-  premium = false,
-  onAction
-}: {
-  title: string;
-  description: string;
-  premium?: boolean;
-  onAction: () => void;
-}) => (
-  <div className={`rounded-[28px] border p-6 ${premium ? 'border-gold-200 bg-gold-50' : 'border-emerald-200 bg-emerald-50'}`}>
-    <div className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-      {premium ? <Crown className="h-5 w-5 text-gold-900" /> : <UserRound className="h-5 w-5 text-emerald-700" />}
-      {title}
-    </div>
-    <p className="mt-2 text-sm leading-7 text-slate-700">{description}</p>
-    <button
-      onClick={onAction}
-      className={`mt-4 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white ${premium ? 'bg-navy' : 'bg-[#06C755]'}`}
-    >
-      {premium ? <Crown className="h-4 w-4" /> : <UserRound className="h-4 w-4" />}
-      {premium ? '決済案内へ進む' : 'LINEでログイン'}
-    </button>
-  </div>
-);
-
-const LoadingPanel = () => (
-  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-    {Array.from({ length: 6 }).map((_, index) => (
-      <div key={index} className="h-36 animate-pulse rounded-[28px] bg-slate-100" />
-    ))}
-  </div>
-);
-
 export const AppShell = () => {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<TabKey>('home');
   const [billingStatus, setBillingStatus] = useState<'success' | 'cancel' | null>(null);
+
   const [selectedScheduleYear, setSelectedScheduleYear] = useState('2026');
   const [problemSubject, setProblemSubject] = useState('all');
   const [problemYear, setProblemYear] = useState('all');
   const [problemUniversityId, setProblemUniversityId] = useState('all');
+  const [problemFilter, setProblemFilter] = useState<(typeof problemFilterOptions)[number]['key']>('all');
+  const [problemSearch, setProblemSearch] = useState('');
+
   const [regionFilter, setRegionFilter] = useState('all');
   const [universitySearch, setUniversitySearch] = useState('');
-  const [selectedChannelId, setSelectedChannelId] = useState('');
-  const [messageText, setMessageText] = useState('');
+
+  const [studyLogSort, setStudyLogSort] = useState<'date_desc' | 'minutes_desc' | 'subject'>('date_desc');
+  const [studyLogSubject, setStudyLogSubject] = useState('all');
+
   const [communityMode, setCommunityMode] = useState<'board' | 'chat'>('board');
   const [boardCategory, setBoardCategory] = useState<'all' | BoardCategory>('all');
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -221,6 +119,10 @@ export const AppShell = () => {
     is_premium: false
   });
   const [replyDraft, setReplyDraft] = useState('');
+
+  const [selectedChannelId, setSelectedChannelId] = useState('');
+  const [messageText, setMessageText] = useState('');
+
   const [onboardingForm, setOnboardingForm] = useState<OnboardingPayload>({
     full_name: '',
     school_name: '',
@@ -244,6 +146,7 @@ export const AppShell = () => {
 
   const navigate = (nextTab: TabKey) => {
     setTab(nextTab);
+    if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     params.set('tab', nextTab);
     window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
@@ -284,11 +187,23 @@ export const AppShell = () => {
     queryFn: () => fetchJson('/api/admin/users'),
     enabled: Boolean(profile?.is_admin)
   });
+  const threadsQuery = useQuery<{ threads: BoardThread[]; isPremium: boolean }>({
+    queryKey: ['board-threads', boardCategory],
+    queryFn: () => fetchJson(`/api/board/threads?category=${encodeURIComponent(boardCategory)}`)
+  });
+  const threadDetailQuery = useQuery<BoardThread>({
+    queryKey: ['board-thread', activeThreadId],
+    queryFn: () => fetchJson(`/api/board/threads/${activeThreadId}`),
+    enabled: Boolean(activeThreadId)
+  });
+  const threadRepliesQuery = useQuery<BoardReply[]>({
+    queryKey: ['board-replies', activeThreadId],
+    queryFn: () => fetchJson(`/api/board/replies?threadId=${activeThreadId}`),
+    enabled: Boolean(activeThreadId)
+  });
 
   useEffect(() => {
-    if (!selectedChannelId && channelsQuery.data?.length) {
-      setSelectedChannelId(channelsQuery.data[0].id);
-    }
+    if (!selectedChannelId && channelsQuery.data?.length) setSelectedChannelId(channelsQuery.data[0].id);
   }, [channelsQuery.data, selectedChannelId]);
 
   useEffect(() => {
@@ -367,21 +282,17 @@ export const AppShell = () => {
     }
   });
 
-  const threadsQuery = useQuery<{ threads: BoardThread[]; isPremium: boolean }>({
-    queryKey: ['board-threads', boardCategory],
-    queryFn: () => fetchJson(`/api/board/threads?category=${encodeURIComponent(boardCategory)}`)
-  });
-
-  const threadDetailQuery = useQuery<BoardThread>({
-    queryKey: ['board-thread', activeThreadId],
-    queryFn: () => fetchJson(`/api/board/threads/${activeThreadId}`),
-    enabled: Boolean(activeThreadId)
-  });
-
-  const threadRepliesQuery = useQuery<BoardReply[]>({
-    queryKey: ['board-replies', activeThreadId],
-    queryFn: () => fetchJson(`/api/board/replies?threadId=${activeThreadId}`),
-    enabled: Boolean(activeThreadId)
+  const upgradeMutation = useMutation({
+    mutationFn: () => fetchJson<{ url: string; alreadyPremium?: boolean }>('/api/stripe/checkout', { method: 'POST' }),
+    onSuccess: async (data) => {
+      if (data.alreadyPremium) {
+        setBillingStatus('success');
+        await queryClient.invalidateQueries({ queryKey: ['me'] });
+        navigate('problems');
+        return;
+      }
+      if (data.url) window.location.href = data.url;
+    }
   });
 
   const createThreadMutation = useMutation({
@@ -417,63 +328,12 @@ export const AppShell = () => {
     }
   });
 
-  const upgradeMutation = useMutation({
-    mutationFn: () => fetchJson<{ url: string; alreadyPremium?: boolean }>('/api/stripe/checkout', { method: 'POST' }),
-    onSuccess: async (data) => {
-      if (data.alreadyPremium) {
-        setBillingStatus('success');
-        await queryClient.invalidateQueries({ queryKey: ['me'] });
-        navigate('problems');
-        return;
-      }
-      if (data.url) window.location.href = data.url;
-    }
-  });
-
   const handleUpgrade = () => {
     if (!isAuthenticated) {
       requestLogin();
       return;
     }
     upgradeMutation.mutate();
-  };
-
-  const universities = universitiesQuery.data ?? [];
-  const schedules = schedulesQuery.data ?? [];
-  const problems = problemsQuery.data?.problems ?? [];
-  const progressMap = problemsQuery.data?.progress ?? {};
-  const dashboard = dashboardQuery.data;
-  const channels = channelsQuery.data ?? [];
-
-  const filteredUniversities = useMemo(() => {
-    return universities.filter((university) => {
-      const matchesRegion = regionFilter === 'all' || university.region === regionFilter;
-      const text = `${university.name} ${university.note ?? ''}`.toLowerCase();
-      const matchesSearch = !universitySearch || text.includes(universitySearch.toLowerCase());
-      return matchesRegion && matchesSearch;
-    });
-  }, [regionFilter, universities, universitySearch]);
-
-  const problemYears = useMemo(() => {
-    const values = new Set<string>(['all']);
-    problems.forEach((problem) => values.add(String(problem.year)));
-    return [...values];
-  }, [problems]);
-
-  const quickUniversityOptions = useMemo(() => universities.map((item) => ({ id: item.id, name: item.name })), [universities]);
-
-  const tabItems = useMemo<Array<{ key: TabKey; label: string; icon: typeof LayoutGrid }>>(() => {
-    const items: Array<{ key: TabKey; label: string; icon: typeof LayoutGrid }> = [...tabs];
-    if (profile?.is_admin) items.push({ key: 'admin', label: '管理者', icon: ShieldCheck });
-    return items;
-  }, [profile?.is_admin]);
-
-  const handleFeatureClick = (targetTab: TabKey) => {
-    if (targetTab === 'dashboard' && !isAuthenticated) {
-      requestLogin();
-      return;
-    }
-    navigate(targetTab);
   };
 
   const handleOpenThread = (thread: BoardThread) => {
@@ -492,378 +352,478 @@ export const AppShell = () => {
     setShowThreadComposer(true);
   };
 
-  const renderHome = () => (
-    <div className="space-y-6">
-      <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-soft">
-        <div className="grid gap-8 px-5 py-6 sm:px-8 sm:py-8 lg:grid-cols-[1.4fr_0.9fr] lg:items-center">
-          <div>
-            <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-4 py-1 text-xs font-semibold tracking-wide text-slate-600">
-              Re-try / 医学部学士編入サポート
-            </div>
-            <h1 className="mt-4 text-3xl font-bold tracking-tight text-navy-900 sm:text-5xl">
-              受験の不安を、
-              <span className="block">次の一手に変える。</span>
-            </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
-              Re-try は、医学部学士編入に必要な大学比較、試験日程、過去問、学習記録をひとつにまとめた受験プラットフォームです。
-              何を見て、何から進めるかを迷わないように、受験生に必要な情報をわかりやすく整理しています。
-            </p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button onClick={() => navigate('universities')} className="inline-flex items-center gap-2 rounded-full bg-navy px-5 py-3 text-sm font-semibold text-white">
-                志望校を比較する
-                <ArrowRight className="h-4 w-4" />
-              </button>
-              {isAuthenticated ? (
-                <button onClick={() => navigate('dashboard')} className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700">
-                  学習記録を見る
-                </button>
-              ) : (
-                <button onClick={requestLogin} className="inline-flex items-center gap-2 rounded-full border border-[#06C755] bg-[#06C755] px-5 py-3 text-sm font-semibold text-white">
-                  <UserRound className="h-4 w-4" />
-                  LINEで始める
-                </button>
-              )}
-            </div>
-            <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-3xl bg-slate-50 p-4">
-                <div className="text-xs text-slate-500">情報の起点</div>
-                <div className="mt-2 text-lg font-semibold text-navy-900">大学比較</div>
-              </div>
-              <div className="rounded-3xl bg-slate-50 p-4">
-                <div className="text-xs text-slate-500">実行の起点</div>
-                <div className="mt-2 text-lg font-semibold text-navy-900">日程確認</div>
-              </div>
-              <div className="rounded-3xl bg-slate-50 p-4">
-                <div className="text-xs text-slate-500">改善の起点</div>
-                <div className="mt-2 text-lg font-semibold text-navy-900">学習記録</div>
-              </div>
-            </div>
-          </div>
+  const universities = universitiesQuery.data ?? [];
+  const schedules = schedulesQuery.data ?? [];
+  const problems = problemsQuery.data?.problems ?? [];
+  const progressMap = problemsQuery.data?.progress ?? {};
+  const dashboard = dashboardQuery.data;
 
-          <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
-            <div className="flex items-center gap-2 text-sm font-semibold text-navy-900">
-              <Sparkles className="h-4 w-4" />
-              Re-try が大切にしていること
-            </div>
-            <div className="mt-4 space-y-3">
-              {trustPoints.map((item) => (
-                <div key={item} className="flex gap-3 rounded-2xl bg-white p-3">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
-                  <div className="text-sm leading-6 text-slate-700">{item}</div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-5 rounded-2xl bg-navy px-4 py-4 text-sm leading-7 text-white">
-              キャッチフレーズ
-              <div className="mt-1 text-lg font-semibold">「迷う時間を減らし、前に進む時間を増やす。」</div>
-            </div>
-          </div>
+  const filteredUniversities = useMemo(() => {
+    return universities.filter((university) => {
+      const matchesRegion = regionFilter === 'all' || university.region === regionFilter;
+      const text = `${university.name} ${university.note ?? ''}`.toLowerCase();
+      const matchesSearch = !universitySearch || text.includes(universitySearch.toLowerCase());
+      return matchesRegion && matchesSearch;
+    });
+  }, [regionFilter, universities, universitySearch]);
+
+  const problemYears = useMemo(() => {
+    const values = new Set<string>(['all']);
+    problems.forEach((problem) => values.add(String(problem.year)));
+    return [...values];
+  }, [problems]);
+
+  const filteredProblems = useMemo(() => {
+    const keyword = problemSearch.trim().toLowerCase();
+    return problems.filter((problem) => {
+      const status = progressMap[problem.id];
+      if (problemFilter === 'unfinished' && status) return false;
+      if (problemFilter === 'wrong' && status !== 'wrong') return false;
+      if (problemFilter === 'bookmarked' && status !== 'bookmarked') return false;
+      if (!keyword) return true;
+      return `${problem.subject} ${problem.question} ${problem.university?.name ?? ''}`.toLowerCase().includes(keyword);
+    });
+  }, [problemFilter, problemSearch, problems, progressMap]);
+
+  const sortedStudyLogs = useMemo(() => {
+    const logs = (dashboard?.studyLogs ?? []).filter((log) => studyLogSubject === 'all' || log.subject === studyLogSubject);
+    if (studyLogSort === 'minutes_desc') return [...logs].sort((a, b) => b.minutes - a.minutes);
+    if (studyLogSort === 'subject') return [...logs].sort((a, b) => a.subject.localeCompare(b.subject));
+    return [...logs].sort((a, b) => b.logged_on.localeCompare(a.logged_on));
+  }, [dashboard?.studyLogs, studyLogSort, studyLogSubject]);
+
+  const showAdminTab = Boolean(profile?.is_admin);
+
+  const billingBanner =
+    billingStatus === 'success' ? (
+      <Card className="border-emerald-200 bg-emerald-50 text-sm text-emerald-800">
+        ご購入ありがとうございます。すべての機能が解放されました。
+      </Card>
+    ) : billingStatus === 'cancel' ? (
+      <Card className="border-amber-200 bg-amber-50 text-sm text-amber-800">
+        お支払いはキャンセルされました。気になったらいつでも続きから進められます。
+      </Card>
+    ) : null;
+
+  const upgradeCard = !isPremium ? (
+    <SectionCard title="すべての機能を解放" subtitle="一度の支払いで永久に利用できます。サブスクリプションではありません。">
+      <div className="rounded-3xl bg-cream-50 p-4">
+        <div className="flex items-baseline gap-2">
+          <div className="text-3xl font-bold text-navy-900">{formatPriceJPY(PREMIUM_PRICE)}</div>
+          <div className="text-xs text-slate-500">税込・買い切り</div>
         </div>
-      </section>
+        <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+          <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />過去問の解答と詳しい解説を閲覧</li>
+          <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />掲示板の限定スレッドに参加</li>
+          <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />これから追加される新機能も追加料金なし</li>
+        </ul>
+        <TapButton variant="primary" onClick={handleUpgrade} disabled={upgradeMutation.isPending} className="mt-4 w-full">
+          {upgradeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Crown className="h-4 w-4" />}
+          {formatPriceJPY(PREMIUM_PRICE)}を支払って解放する
+        </TapButton>
+        <p className="mt-2 text-[11px] leading-5 text-slate-500">決済は Stripe を利用します。デジタル商品の特性上、決済後の返金はお受けできません。</p>
+      </div>
+    </SectionCard>
+  ) : null;
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="掲載大学数" value={summaryQuery.isLoading ? '...' : `${summaryQuery.data?.universities ?? 0}`} />
-        <StatCard label="公開問題数" value={summaryQuery.isLoading ? '...' : `${summaryQuery.data?.problems ?? 0}`} />
-        <StatCard label="掲示板スレッド数" value={summaryQuery.isLoading ? '...' : `${summaryQuery.data?.boardThreads ?? 0}`} />
-        <StatCard label="プラン状態" value={isPremium ? 'プレミアム' : '無料プラン'} />
+  const renderHome = () => (
+    <div className="space-y-4">
+      <Card className="bg-gradient-to-br from-navy to-[#3253c8] text-white">
+        <Badge tone="gold">医学部学士編入サポート</Badge>
+        <h1 className="mt-3 text-2xl font-bold leading-snug">
+          迷う時間を減らし、<br />前に進む時間を増やす。
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-sky-100">
+          大学比較・日程・過去問・学習記録・掲示板を一画面に。今日やる一手が、自然と決まります。
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <TapButton variant="line" className="w-full" onClick={isAuthenticated ? () => navigate('dashboard') : requestLogin}>
+            <UserRound className="h-4 w-4" />
+            {isAuthenticated ? '記録を開く' : 'LINEで始める'}
+          </TapButton>
+          <TapButton variant="ghost" className="w-full bg-white/15 text-white" onClick={() => navigate('problems')}>
+            <BookOpen className="h-4 w-4" />
+            過去問を見る
+          </TapButton>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Card>
+          <div className="text-xs text-slate-500">掲載大学</div>
+          <div className="mt-1 text-2xl font-bold text-navy-900">{summaryQuery.data?.universities ?? 0}</div>
+        </Card>
+        <Card>
+          <div className="text-xs text-slate-500">公開問題</div>
+          <div className="mt-1 text-2xl font-bold text-navy-900">{summaryQuery.data?.problems ?? 0}</div>
+        </Card>
+        <Card>
+          <div className="text-xs text-slate-500">掲示板スレッド</div>
+          <div className="mt-1 text-2xl font-bold text-navy-900">{summaryQuery.data?.boardThreads ?? 0}</div>
+        </Card>
+        <Card>
+          <div className="text-xs text-slate-500">プラン</div>
+          <div className="mt-1 text-base font-semibold text-navy-900">{isPremium ? '解放済み' : '無料で利用中'}</div>
+        </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        {featureCards.map((card) => {
-          const Icon = card.icon;
-          return (
+      <SectionCard title="まずやることリスト" subtitle="この順番で進めると、迷いにくくなります。">
+        <ol className="space-y-3 text-sm text-slate-700">
+          <li className="flex gap-3 rounded-2xl bg-slate-50 p-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-navy text-xs font-semibold text-white">1</span>大学比較で志望校の候補を絞る</li>
+          <li className="flex gap-3 rounded-2xl bg-slate-50 p-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-navy text-xs font-semibold text-white">2</span>日程ページで出願締切と試験日を押さえる</li>
+          <li className="flex gap-3 rounded-2xl bg-slate-50 p-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-navy text-xs font-semibold text-white">3</span>過去問を解いて、学習記録に残す</li>
+        </ol>
+      </SectionCard>
+
+      {upgradeCard}
+
+      <SectionCard title="最新の掲示板" subtitle="気になるスレッドを開くと、すぐ参加できます。">
+        <div className="space-y-3">
+          {(threadsQuery.data?.threads ?? []).slice(0, 3).map((thread) => (
             <button
-              key={card.title}
-              onClick={() => handleFeatureClick(card.tab)}
-              className="rounded-[28px] border border-slate-200 bg-white p-5 text-left shadow-soft transition hover:-translate-y-0.5"
+              key={thread.id}
+              onClick={() => {
+                navigate('community');
+                setCommunityMode('board');
+                handleOpenThread(thread);
+              }}
+              className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left"
             >
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-navy-900">
-                <Icon className="h-5 w-5" />
+              <div className="flex flex-wrap items-center gap-1">
+                <Badge tone="slate">{thread.category}</Badge>
+                {thread.is_premium ? <Badge tone="gold">解放済み限定</Badge> : <Badge tone="emerald">誰でも閲覧可</Badge>}
               </div>
-              <div className="mt-4 text-lg font-semibold text-navy-900">{card.title}</div>
-              <p className="mt-2 text-sm leading-6 text-slate-600">{card.description}</p>
-              <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-navy-900">
-                開く
-                <ArrowRight className="h-4 w-4" />
-              </div>
+              <div className="mt-2 text-sm font-semibold text-navy-900">{thread.title}</div>
+              <div className="mt-1 text-xs text-slate-500">返信 {thread.reply_count} 件 ・ 最終 {formatDateTime(thread.last_reply_at ?? thread.updated_at)}</div>
             </button>
-          );
-        })}
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <SectionCard title="まず見るべき3ステップ" subtitle="初めて使う人でも迷わないよう、順番を固定しています。">
-          <div className="grid gap-4 md:grid-cols-3">
-            {howToUseSteps.map((step, index) => (
-              <div key={step.title} className="rounded-3xl bg-slate-50 p-4">
-                <div className="text-xs font-semibold tracking-wide text-slate-500">STEP {index + 1}</div>
-                <div className="mt-2 text-base font-semibold text-navy-900">{step.title}</div>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{step.body}</p>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-
-        <SectionCard title="今週の進め方" subtitle="受験生がつまずきやすいポイントを短く整理しました。">
-          <div className="space-y-3">
-            {weeklyTips.map((tip) => (
-              <div key={tip} className="flex gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-                <Target className="mt-0.5 h-5 w-5 shrink-0 text-navy-900" />
-                <span>{tip}</span>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-      </div>
-
-      <SectionCard title="プレミアムで解放されること" subtitle="無料で試したあと、必要なタイミングでアップグレードできます。">
-        <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
-          <div className="grid gap-3 md:grid-cols-3">
-            {premiumBenefits.map((item) => (
-              <div key={item} className="rounded-3xl border border-gold-200 bg-gold-50 p-4 text-sm leading-6 text-gold-900">
-                <div className="mb-2 inline-flex rounded-full bg-white px-2 py-1 text-xs font-semibold text-gold-900">プレミアム</div>
-                {item}
-              </div>
-            ))}
-          </div>
-          {!isPremium ? (
-            <button onClick={handleUpgrade} className="inline-flex items-center gap-2 rounded-full bg-navy px-5 py-3 text-sm font-semibold text-white">
-              <Crown className="h-4 w-4" />
-              決済案内へ進む
-            </button>
-          ) : null}
+          ))}
         </div>
       </SectionCard>
     </div>
   );
 
   const renderUniversities = () => (
-    <div className="space-y-6">
-      <SectionCard title="大学比較" subtitle="地域や校名から候補校を絞り込み、出題傾向の違いをつかめます。">
-        <div className="mb-4 grid gap-3 md:grid-cols-[180px_1fr]">
-          <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm">
+    <div className="space-y-4">
+      <SectionCard title="大学比較" subtitle="地域や校名で絞り込み、出題傾向の違いを確認できます。">
+        <div className="space-y-2">
+          <SelectField value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}>
             {regionOptions.map((region) => (
               <option key={region} value={region}>{region === 'all' ? '全地域' : region}</option>
             ))}
-          </select>
-          <input
-            value={universitySearch}
-            onChange={(e) => setUniversitySearch(e.target.value)}
-            placeholder="大学名やメモで検索"
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
-          />
+          </SelectField>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <TextField
+              value={universitySearch}
+              onChange={(e) => setUniversitySearch(e.target.value)}
+              placeholder="大学名やメモで検索"
+              className="pl-10"
+            />
+          </div>
         </div>
 
-        {universitiesQuery.isLoading ? <LoadingPanel /> : null}
-
-        {!universitiesQuery.isLoading ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {universitiesQuery.isLoading ? (
+          <div className="mt-4"><SkeletonGrid count={3} /></div>
+        ) : filteredUniversities.length === 0 ? (
+          <div className="mt-4"><EmptyState title="該当なし" description="条件をゆるめてもう一度お試しください。" /></div>
+        ) : (
+          <div className="mt-4 space-y-3">
             {filteredUniversities.map((university) => (
-              <div key={university.id} className="rounded-[28px] border border-slate-200 p-5">
-                <div className="flex items-center justify-between gap-3">
+              <Card key={university.id}>
+                <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="text-lg font-semibold text-navy-900">{university.name}</div>
-                    <div className="mt-1 text-sm text-slate-500">{university.region}</div>
+                    <div className="text-base font-semibold text-navy-900">{university.name}</div>
+                    <div className="mt-0.5 text-xs text-slate-500">{university.region}</div>
                   </div>
-                  <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">比較用</div>
+                  <Badge tone="slate">比較用</Badge>
                 </div>
-                <div className="mt-4 space-y-2 text-sm text-slate-700">
-                  <div className="rounded-2xl bg-slate-50 px-4 py-3">生命科学: {university.life_sci}</div>
-                  <div className="rounded-2xl bg-slate-50 px-4 py-3">物理 / 化学: {university.physics_chem}</div>
-                  <div className="rounded-2xl bg-slate-50 px-4 py-3">統計 / 数学: {university.stats_math}</div>
+                <div className="mt-3 space-y-2 text-sm text-slate-700">
+                  <div className="rounded-2xl bg-slate-50 px-3 py-2">生命科学：{university.life_sci}</div>
+                  <div className="rounded-2xl bg-slate-50 px-3 py-2">物理 / 化学：{university.physics_chem}</div>
+                  <div className="rounded-2xl bg-slate-50 px-3 py-2">統計 / 数学：{university.stats_math}</div>
                 </div>
-                {university.note ? <p className="mt-4 text-sm leading-6 text-slate-600">{university.note}</p> : null}
-              </div>
+                {university.note ? <p className="mt-3 text-xs leading-5 text-slate-500">{university.note}</p> : null}
+              </Card>
             ))}
           </div>
-        ) : null}
+        )}
       </SectionCard>
     </div>
   );
 
   const renderSchedules = () => (
-    <div className="space-y-6">
-      <SectionCard title="試験日程" subtitle="出願から二次試験までを年度別に整理し、計画に落とし込みやすくしています。">
-        <div className="mb-4 flex flex-wrap gap-2">
+    <div className="space-y-4">
+      <SectionCard title="試験日程" subtitle="出願から二次試験までを年度別に整理しました。">
+        <div className="mb-3 flex flex-wrap gap-2">
           {scheduleYears.map((year) => (
             <button
               key={year}
               onClick={() => setSelectedScheduleYear(year)}
-              className={`rounded-full px-4 py-2 text-sm font-semibold ${selectedScheduleYear === year ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
+              className={`min-h-[44px] rounded-full px-4 text-sm font-semibold ${selectedScheduleYear === year ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
             >
               {year}年度
             </button>
           ))}
         </div>
-
-        {schedulesQuery.isLoading ? <LoadingPanel /> : null}
-
-        {!schedulesQuery.isLoading ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {schedulesQuery.isLoading ? (
+          <SkeletonGrid count={3} />
+        ) : schedules.length === 0 ? (
+          <EmptyState title="日程未登録" description="この年度の日程はまだ登録されていません。" />
+        ) : (
+          <div className="space-y-3">
             {schedules.map((schedule) => (
-              <div key={schedule.id} className="rounded-[28px] border border-slate-200 p-5">
-                <div className="text-lg font-semibold text-navy-900">{schedule.university?.name ?? '大学名未設定'}</div>
-                <div className="mt-1 text-sm text-slate-500">{schedule.university?.region ?? '地域未設定'} / {schedule.year}年度</div>
-                <div className="mt-4 space-y-2 text-sm text-slate-700">
-                  <div className="rounded-2xl bg-slate-50 px-4 py-3">出願開始: {formatDate(schedule.application_start)}</div>
-                  <div className="rounded-2xl bg-slate-50 px-4 py-3">出願締切: {formatDate(schedule.application_end)}</div>
-                  <div className="rounded-2xl bg-slate-50 px-4 py-3">一次試験: {formatDate(schedule.first_exam_date)}</div>
-                  <div className="rounded-2xl bg-slate-50 px-4 py-3">二次試験: {formatDate(schedule.second_exam_date)}</div>
+              <Card key={schedule.id}>
+                <div className="text-base font-semibold text-navy-900">{schedule.university?.name ?? '大学名未設定'}</div>
+                <div className="mt-0.5 text-xs text-slate-500">{schedule.university?.region ?? '地域未設定'} ・ {schedule.year}年度</div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-700">
+                  <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">出願開始</div><div className="font-semibold">{formatDate(schedule.application_start)}</div></div>
+                  <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">出願締切</div><div className="font-semibold">{formatDate(schedule.application_end)}</div></div>
+                  <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">一次試験</div><div className="font-semibold">{formatDate(schedule.first_exam_date)}</div></div>
+                  <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">二次試験</div><div className="font-semibold">{formatDate(schedule.second_exam_date)}</div></div>
                 </div>
-                {schedule.memo ? <p className="mt-4 text-sm leading-6 text-slate-600">{schedule.memo}</p> : null}
-              </div>
+                {schedule.memo ? <p className="mt-3 text-xs leading-5 text-slate-500">{schedule.memo}</p> : null}
+              </Card>
             ))}
           </div>
-        ) : null}
+        )}
       </SectionCard>
     </div>
   );
 
-  const renderProblems = () => (
-    <div className="space-y-6">
-      <SectionCard
-        title="過去問"
-        subtitle="まずは無料問題で感触を確認し、解説が必要な場面でプレミアムへ進める構成です。"
-        action={
-          !isPremium ? (
-            <button onClick={handleUpgrade} disabled={upgradeMutation.isPending} className="inline-flex items-center gap-2 rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-              {upgradeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Crown className="h-4 w-4" />}
-              決済案内へ進む
-            </button>
-          ) : null
-        }
-      >
-        <div className="mb-4 grid gap-3 md:grid-cols-3">
-          <select value={problemSubject} onChange={(e) => setProblemSubject(e.target.value)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm">
-            {subjectOptions.map((subject) => (
-              <option key={subject} value={subject}>{subject === 'all' ? '全科目' : subject}</option>
-            ))}
-          </select>
-          <select value={problemYear} onChange={(e) => setProblemYear(e.target.value)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm">
-            {problemYears.map((year) => (
-              <option key={year} value={year}>{year === 'all' ? '全年' : `${year}年`}</option>
-            ))}
-          </select>
-          <select value={problemUniversityId} onChange={(e) => setProblemUniversityId(e.target.value)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm">
-            <option value="all">全大学</option>
-            {quickUniversityOptions.map((university) => (
-              <option key={university.id} value={university.id}>{university.name}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-4">
-          {problems.map((problem) => (
-            <div key={problem.id} className="rounded-[28px] border border-slate-200 p-5">
-              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">{problem.subject}</span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">{problem.year}年</span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">難易度 {problem.difficulty}</span>
-                <span className={`rounded-full px-3 py-1 ${problem.is_premium ? 'bg-gold-50 text-gold-900' : 'bg-emerald-50 text-emerald-700'}`}>
-                  {problem.is_premium ? 'プレミアム' : '無料'}
-                </span>
-              </div>
-              <div className="mt-3 text-sm font-medium text-slate-500">{problem.university?.name ?? '大学未設定'}</div>
-              <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-800">{problem.question}</div>
-              {problem.options ? <div className="mt-3 whitespace-pre-wrap rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">{problem.options}</div> : null}
-
-              {problem.can_view_answer ? (
-                <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-700">
-                  <div className="font-semibold text-navy-900">解答</div>
-                  <div className="mt-2">{problem.answer ?? '未設定'}</div>
-                  {problem.answer_detail ? <div className="mt-2 text-slate-600">{problem.answer_detail}</div> : null}
-                </div>
-              ) : (
-                <div className="mt-4 rounded-3xl border border-gold-200 bg-gold-50 p-4 text-sm text-gold-900">
-                  <div className="flex items-center gap-2 font-semibold">
-                    <Lock className="h-4 w-4" />
-                    プレミアム会員のみ解答を閲覧できます
-                  </div>
-                  <p className="mt-2 leading-6">解答解説や限定コミュニティが必要な場合は、決済案内からアップグレードしてください。</p>
-                  <button onClick={handleUpgrade} className="mt-3 rounded-full bg-navy px-4 py-2 text-white">決済案内へ進む</button>
-                </div>
-              )}
-
-              {isAuthenticated ? (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {(['correct', 'wrong', 'bookmarked'] as const).map((status) => (
-                    <button
-                      key={status}
-                      onClick={() => progressMutation.mutate({ problemId: problem.id, status })}
-                      className={`rounded-full px-4 py-2 text-sm font-semibold ${progressMap[problem.id] === status ? 'bg-navy text-white' : 'border border-slate-200 bg-white text-slate-700'}`}
-                    >
-                      {status === 'correct' ? '正解' : status === 'wrong' ? '復習' : '保存'}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-4 text-sm text-slate-500">進捗保存にはログインが必要です。</div>
-              )}
-            </div>
-          ))}
-        </div>
-      </SectionCard>
-    </div>
-  );
-
-  const renderDashboard = () => {
-    if (!isAuthenticated) {
-      return <AccessGate title="学習記録はログイン後に利用可能" description="LINEログイン後、学習ログとダッシュボードを継続して使えます。" onAction={requestLogin} />;
-    }
+  const renderProblems = () => {
+    const totalCount = problems.length;
+    const finishedCount = problems.filter((p) => progressMap[p.id]).length;
+    const correctCount = problems.filter((p) => progressMap[p.id] === 'correct').length;
+    const progressValue = totalCount ? Math.round((finishedCount / totalCount) * 100) : 0;
 
     return (
-      <div className="space-y-6">
-        {!profile?.onboarding_completed ? (
-          <SectionCard title="初回プロフィール設定" subtitle="学習記録とコミュニティ表示を使いやすくするための最小限の設定です。">
-            <div className="grid gap-3 md:grid-cols-2">
-              <input value={onboardingForm.full_name} onChange={(e) => setOnboardingForm((current) => ({ ...current, full_name: e.target.value }))} placeholder="氏名" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm" />
-              <input value={onboardingForm.school_name} onChange={(e) => setOnboardingForm((current) => ({ ...current, school_name: e.target.value }))} placeholder="学校名" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm" />
-              <select value={onboardingForm.gender} onChange={(e) => setOnboardingForm((current) => ({ ...current, gender: e.target.value as UserGender }))} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm">
-                {genderOptions.map((gender) => <option key={gender} value={gender}>{gender}</option>)}
-              </select>
-              <input value={onboardingForm.club_name} onChange={(e) => setOnboardingForm((current) => ({ ...current, club_name: e.target.value }))} placeholder="部活動" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm" />
+      <div className="space-y-4">
+        {!isPremium ? (
+          <Card className="border-gold-200 bg-cream-50">
+            <div className="flex items-start gap-3">
+              <Crown className="h-5 w-5 text-gold-900" />
+              <div>
+                <div className="text-sm font-semibold text-navy-900">解答と解説を読みたい方へ</div>
+                <p className="mt-1 text-xs leading-5 text-slate-700">
+                  {formatPriceJPY(PREMIUM_PRICE)}（税込・買い切り）で、過去問の解答・解説と掲示板の限定スレッドが解放されます。
+                </p>
+                <TapButton variant="primary" onClick={handleUpgrade} className="mt-3">
+                  <Crown className="h-4 w-4" />
+                  すべての機能を解放する
+                </TapButton>
+              </div>
             </div>
-            <button onClick={() => onboardingMutation.mutate()} className="mt-4 rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white">保存する</button>
-          </SectionCard>
+          </Card>
         ) : null}
 
-        <SectionCard title="学習サマリー" subtitle="進捗を定量的に見て、次に何をやるべきか判断しやすくします。">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="総学習時間" value={`${dashboard?.stats.totalHours ?? 0}h`} />
-            <StatCard label="正解数" value={`${dashboard?.stats.correctCount ?? 0}`} />
-            <StatCard label="正答率" value={`${dashboard?.stats.accuracy ?? 0}%`} />
-            <StatCard label="連続学習日数" value={`${dashboard?.stats.streakDays ?? 0}日`} />
+        <SectionCard title="あなたの進捗" subtitle="この一覧での到達度を表示しています。">
+          <ProgressBar value={progressValue} label={`着手 ${finishedCount} / ${totalCount} 問`} />
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+            <Card className="p-3"><div className="text-slate-500">正解</div><div className="mt-1 text-lg font-bold text-navy-900">{correctCount}</div></Card>
+            <Card className="p-3"><div className="text-slate-500">復習対象</div><div className="mt-1 text-lg font-bold text-navy-900">{problems.filter((p) => progressMap[p.id] === 'wrong').length}</div></Card>
+            <Card className="p-3"><div className="text-slate-500">保存</div><div className="mt-1 text-lg font-bold text-navy-900">{problems.filter((p) => progressMap[p.id] === 'bookmarked').length}</div></Card>
           </div>
         </SectionCard>
 
-        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <SectionCard title="学習ログを追加" subtitle="今日の勉強を残すだけで、継続状況が見える化されます。">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <select value={studyLog.subject} onChange={(e) => setStudyLog((current) => ({ ...current, subject: e.target.value }))} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm">
-                {subjectOptions.filter((item) => item !== 'all').map((subject) => <option key={subject} value={subject}>{subject}</option>)}
-              </select>
-              <input type="number" value={studyLog.minutes} onChange={(e) => setStudyLog((current) => ({ ...current, minutes: Number(e.target.value) }))} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm" />
-              <input type="date" value={studyLog.logged_on} onChange={(e) => setStudyLog((current) => ({ ...current, logged_on: e.target.value }))} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm" />
-              <input value={studyLog.memo} onChange={(e) => setStudyLog((current) => ({ ...current, memo: e.target.value }))} placeholder="メモ" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm" />
+        <SectionCard title="絞り込み" subtitle="気になる条件で素早く絞れます。">
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <SelectField value={problemSubject} onChange={(e) => setProblemSubject(e.target.value)}>
+                {subjectOptions.map((subject) => (
+                  <option key={subject} value={subject}>{subject === 'all' ? '全科目' : subject}</option>
+                ))}
+              </SelectField>
+              <SelectField value={problemYear} onChange={(e) => setProblemYear(e.target.value)}>
+                {problemYears.map((year) => (
+                  <option key={year} value={year}>{year === 'all' ? '全年度' : `${year}年`}</option>
+                ))}
+              </SelectField>
             </div>
-            <button onClick={() => studyLogMutation.mutate()} className="mt-4 rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white">保存する</button>
-          </SectionCard>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <TextField value={problemSearch} onChange={(e) => setProblemSearch(e.target.value)} placeholder="問題本文や大学名で検索" className="pl-10" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {problemFilterOptions.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setProblemFilter(item.key)}
+                  className={`min-h-[44px] rounded-full px-4 text-xs font-semibold ${problemFilter === item.key ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
+                >
+                  <Filter className="mr-1 inline h-3 w-3" />
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </SectionCard>
 
-          <SectionCard title="苦手の見直し" subtitle="復習対象をすぐ拾えるように、直近の弱点を並べています。">
-            <div className="space-y-3">
-              {(dashboard?.weakProblems ?? []).length ? (
-                dashboard?.weakProblems.map((problem) => (
-                  <div key={problem.id} className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-sm font-semibold text-navy-900">{problem.subject} / {problem.university?.name ?? '大学未設定'}</div>
-                    <div className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">{problem.question}</div>
+        {problemsQuery.isLoading ? (
+          <SkeletonGrid count={3} />
+        ) : filteredProblems.length === 0 ? (
+          <EmptyState title="一致する問題はありません" description="フィルタを少しゆるめてみてください。" />
+        ) : (
+          <div className="space-y-3">
+            {filteredProblems.map((problem) => {
+              const status = progressMap[problem.id];
+              return (
+                <Card key={problem.id}>
+                  <div className="flex flex-wrap items-center gap-1 text-xs">
+                    <Badge tone="slate">{problem.subject}</Badge>
+                    <Badge tone="slate">{problem.year}年</Badge>
+                    <Badge tone="slate">難易度 {problem.difficulty}</Badge>
+                    {problem.is_premium ? <Badge tone="gold">解放済み限定</Badge> : <Badge tone="emerald">無料</Badge>}
+                    {status === 'correct' ? <Badge tone="emerald">正解</Badge> : null}
+                    {status === 'wrong' ? <Badge tone="rose">復習</Badge> : null}
+                    {status === 'bookmarked' ? <Badge tone="amber">保存</Badge> : null}
                   </div>
-                ))
-              ) : (
-                <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">復習登録された問題はまだありません。</div>
-              )}
+                  <div className="mt-2 text-xs font-medium text-slate-500">{problem.university?.name ?? '大学未設定'}</div>
+                  <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">{problem.question}</div>
+                  {problem.options ? <div className="mt-2 whitespace-pre-wrap rounded-2xl bg-slate-50 p-3 text-xs leading-6 text-slate-600">{problem.options}</div> : null}
+
+                  {problem.can_view_answer ? (
+                    <div className="mt-3 rounded-3xl bg-sky-50 p-3 text-xs leading-6 text-slate-700">
+                      <div className="font-semibold text-navy-900">解答</div>
+                      <div>{problem.answer ?? '未設定'}</div>
+                      {problem.answer_detail ? <div className="mt-1 text-slate-600">{problem.answer_detail}</div> : null}
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-3xl border border-gold-200 bg-cream-50 p-3 text-xs leading-6 text-gold-900">
+                      <div className="flex items-center gap-1 font-semibold"><Lock className="h-3 w-3" />解答は解放後に閲覧できます</div>
+                      <TapButton variant="primary" onClick={handleUpgrade} className="mt-2 w-full">
+                        <Crown className="h-4 w-4" />
+                        {formatPriceJPY(PREMIUM_PRICE)}で解放
+                      </TapButton>
+                    </div>
+                  )}
+
+                  {isAuthenticated ? (
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {(['correct', 'wrong', 'bookmarked'] as const).map((next) => (
+                        <button
+                          key={next}
+                          onClick={() => progressMutation.mutate({ problemId: problem.id, status: next })}
+                          className={`min-h-[44px] rounded-full text-xs font-semibold ${status === next ? 'bg-navy text-white' : 'border border-slate-200 bg-white text-slate-700'}`}
+                        >
+                          {next === 'correct' ? '正解' : next === 'wrong' ? '復習' : '保存'}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-xs text-slate-500">進捗を残すにはログインしてください。</div>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderDashboard = () => {
+    if (!isAuthenticated) {
+      return (
+        <Card className="border-emerald-200 bg-emerald-50 text-emerald-900">
+          <div className="text-sm font-semibold">学習記録はログイン後に使えます</div>
+          <p className="mt-1 text-xs leading-5">LINEログインで、学習時間や正答率の記録を始められます。</p>
+          <TapButton variant="line" onClick={requestLogin} className="mt-3">
+            <UserRound className="h-4 w-4" />
+            LINEでログイン
+          </TapButton>
+        </Card>
+      );
+    }
+
+    const stats = dashboard?.stats;
+
+    return (
+      <div className="space-y-4">
+        {!profile?.onboarding_completed ? (
+          <SectionCard title="プロフィールを整える" subtitle="記録を見やすくするために、まずは設定しましょう。">
+            <div className="space-y-2">
+              <TextField value={onboardingForm.full_name} onChange={(e) => setOnboardingForm((c) => ({ ...c, full_name: e.target.value }))} placeholder="氏名" />
+              <TextField value={onboardingForm.school_name} onChange={(e) => setOnboardingForm((c) => ({ ...c, school_name: e.target.value }))} placeholder="学校名" />
+              <SelectField value={onboardingForm.gender} onChange={(e) => setOnboardingForm((c) => ({ ...c, gender: e.target.value as UserGender }))}>
+                {genderOptions.map((g) => <option key={g} value={g}>{g}</option>)}
+              </SelectField>
+              <TextField value={onboardingForm.club_name} onChange={(e) => setOnboardingForm((c) => ({ ...c, club_name: e.target.value }))} placeholder="部活動・サークル" />
             </div>
+            <TapButton variant="primary" onClick={() => onboardingMutation.mutate()} className="mt-3 w-full" disabled={onboardingMutation.isPending}>
+              {onboardingMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              保存する
+            </TapButton>
           </SectionCard>
-        </div>
+        ) : null}
+
+        <SectionCard title="学習サマリー" subtitle="続けるほど、見える化が役に立ちます。">
+          <div className="grid grid-cols-2 gap-2 text-center">
+            <Card className="p-3"><div className="text-xs text-slate-500">総学習時間</div><div className="mt-1 text-xl font-bold text-navy-900">{stats?.totalHours ?? 0}h</div></Card>
+            <Card className="p-3"><div className="text-xs text-slate-500">正解数</div><div className="mt-1 text-xl font-bold text-navy-900">{stats?.correctCount ?? 0}</div></Card>
+            <Card className="p-3"><div className="text-xs text-slate-500">正答率</div><div className="mt-1 text-xl font-bold text-navy-900">{stats?.accuracy ?? 0}%</div></Card>
+            <Card className="p-3"><div className="text-xs text-slate-500">連続日数</div><div className="mt-1 text-xl font-bold text-navy-900">{stats?.streakDays ?? 0}日</div></Card>
+          </div>
+          <div className="mt-3"><ProgressBar value={stats?.accuracy ?? 0} label="正答率" /></div>
+        </SectionCard>
+
+        <SectionCard title="学習ログを追加" subtitle="今日の積み重ねを残しましょう。">
+          <div className="grid grid-cols-2 gap-2">
+            <SelectField value={studyLog.subject} onChange={(e) => setStudyLog((c) => ({ ...c, subject: e.target.value }))}>
+              {subjectOptions.filter((item) => item !== 'all').map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+            </SelectField>
+            <TextField type="number" value={studyLog.minutes} onChange={(e) => setStudyLog((c) => ({ ...c, minutes: Number(e.target.value) }))} placeholder="分数" />
+            <TextField type="date" value={studyLog.logged_on} onChange={(e) => setStudyLog((c) => ({ ...c, logged_on: e.target.value }))} />
+            <TextField value={studyLog.memo} onChange={(e) => setStudyLog((c) => ({ ...c, memo: e.target.value }))} placeholder="メモ（任意）" />
+          </div>
+          <TapButton variant="primary" onClick={() => studyLogMutation.mutate()} className="mt-3 w-full" disabled={studyLogMutation.isPending}>
+            {studyLogMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            保存する
+          </TapButton>
+        </SectionCard>
+
+        <SectionCard title="記録の見直し" subtitle="科目と並び順で、知りたい記録を素早く取り出せます。">
+          <div className="grid grid-cols-2 gap-2">
+            <SelectField value={studyLogSubject} onChange={(e) => setStudyLogSubject(e.target.value)}>
+              {subjectOptions.map((subject) => <option key={subject} value={subject}>{subject === 'all' ? '全科目' : subject}</option>)}
+            </SelectField>
+            <SelectField value={studyLogSort} onChange={(e) => setStudyLogSort(e.target.value as typeof studyLogSort)}>
+              <option value="date_desc">新しい順</option>
+              <option value="minutes_desc">学習時間が長い順</option>
+              <option value="subject">科目順</option>
+            </SelectField>
+          </div>
+          <div className="mt-3 space-y-2">
+            {sortedStudyLogs.length === 0 ? (
+              <EmptyState title="記録がまだありません" description="上のフォームから最初のログを残してみましょう。" />
+            ) : (
+              sortedStudyLogs.map((log) => (
+                <Card key={log.id} className="p-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <Badge tone="slate">{log.subject}</Badge>
+                    <span className="text-slate-500">{formatDate(log.logged_on)}</span>
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-navy-900">{log.minutes} 分</div>
+                  {log.memo ? <p className="mt-1 text-xs leading-5 text-slate-600">{log.memo}</p> : null}
+                </Card>
+              ))
+            )}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="苦手の見直し" subtitle="復習対象に登録した問題を最大6件まで表示します。">
+          <div className="space-y-2">
+            {(dashboard?.weakProblems ?? []).length === 0 ? (
+              <EmptyState title="復習対象はまだありません" description="過去問で「復習」を押すと、ここに集まります。" />
+            ) : (
+              dashboard?.weakProblems.map((problem) => (
+                <Card key={problem.id} className="p-3">
+                  <div className="text-xs font-semibold text-navy-900">{problem.subject} ・ {problem.university?.name ?? '大学未設定'}</div>
+                  <div className="mt-1 line-clamp-3 text-xs leading-5 text-slate-600">{problem.question}</div>
+                </Card>
+              ))
+            )}
+          </div>
+        </SectionCard>
       </div>
     );
   };
@@ -873,84 +833,70 @@ export const AppShell = () => {
     return (
       <SectionCard
         title={thread.title}
-        subtitle={`カテゴリ: ${thread.category} / 返信 ${thread.reply_count} 件 / ${thread.is_premium ? 'プレミアム限定' : '誰でも閲覧可'}`}
+        subtitle={`${thread.category} ・ 返信 ${thread.reply_count} 件 ・ ${thread.is_premium ? '解放済み限定' : '誰でも閲覧可'}`}
         action={
-          <button
-            onClick={() => setActiveThreadId(null)}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700"
-          >
+          <TapButton variant="secondary" onClick={() => setActiveThreadId(null)} className="px-3">
             <ArrowLeft className="h-4 w-4" />
-            一覧へ
-          </button>
+            戻る
+          </TapButton>
         }
       >
-        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-700">
-          <div className="flex items-center justify-between gap-2 text-xs">
+        <Card className="bg-slate-50">
+          <div className="flex items-center justify-between text-xs">
             <span className="font-semibold text-navy-900">{thread.display_name}</span>
             <span className="text-slate-500">{formatDateTime(thread.created_at)}</span>
           </div>
-          <div className="mt-2 whitespace-pre-wrap">{thread.body}</div>
-        </div>
+          <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{thread.body}</div>
+        </Card>
 
-        <div className="mt-6">
-          <div className="text-sm font-semibold text-navy-900">返信一覧</div>
-          <div className="mt-3 space-y-3">
-            {replies.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-                まだ返信はありません。最初の一人になりましょう。
-              </div>
-            ) : (
-              replies.map((reply, index) => (
-                <div key={reply.id} className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="font-semibold text-navy-900">
-                      {index + 1}. {reply.display_name}
-                      {reply.is_tutor ? <span className="ml-2 rounded-full bg-navy px-2 py-0.5 text-[10px] text-white">運営</span> : null}
-                    </span>
-                    <span className="text-slate-500">{formatDateTime(reply.created_at)}</span>
-                  </div>
-                  <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{reply.content}</div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-4">
-          {thread.is_closed ? (
-            <div className="text-sm text-slate-500">このスレッドは閉鎖済みです。</div>
-          ) : !isAuthenticated ? (
-            <button onClick={requestLogin} className="inline-flex items-center gap-2 rounded-full bg-[#06C755] px-4 py-2 text-sm font-semibold text-white">
-              <UserRound className="h-4 w-4" />
-              返信するにはLINEログイン
-            </button>
-          ) : thread.is_premium && !isPremium ? (
-            <button onClick={handleUpgrade} className="inline-flex items-center gap-2 rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white">
-              <Crown className="h-4 w-4" />
-              プレミアムで返信する
-            </button>
+        <div className="mt-4 text-sm font-semibold text-navy-900">返信</div>
+        <div className="mt-2 space-y-2">
+          {replies.length === 0 ? (
+            <EmptyState title="まだ返信はありません" description="最初の一人になりましょう。" />
           ) : (
-            <div className="space-y-3">
-              <textarea
-                value={replyDraft}
-                onChange={(e) => setReplyDraft(e.target.value)}
-                placeholder="返信を入力 (規約遵守、個人情報・誘引限定のリンクは NG)"
-                rows={4}
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
-              />
-              <div className="flex justify-end">
-                <button
-                  onClick={() => replyMutation.mutate()}
-                  disabled={!replyDraft.trim() || replyMutation.isPending}
-                  className="inline-flex items-center gap-2 rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                >
-                  {replyMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
-                  返信を送信
-                </button>
-              </div>
-            </div>
+            replies.map((reply, index) => (
+              <Card key={reply.id} className="p-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-navy-900">
+                    {index + 1}. {reply.display_name}
+                    {reply.is_tutor ? <Badge tone="slate">運営</Badge> : null}
+                  </span>
+                  <span className="text-slate-500">{formatDateTime(reply.created_at)}</span>
+                </div>
+                <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{reply.content}</div>
+              </Card>
+            ))
           )}
         </div>
+
+        <Card className="mt-4">
+          {thread.is_closed ? (
+            <div className="text-xs text-slate-500">このスレッドは閉鎖済みです。</div>
+          ) : !isAuthenticated ? (
+            <TapButton variant="line" onClick={requestLogin} className="w-full">
+              <UserRound className="h-4 w-4" />
+              返信するにはLINEでログイン
+            </TapButton>
+          ) : thread.is_premium && !isPremium ? (
+            <TapButton variant="primary" onClick={handleUpgrade} className="w-full">
+              <Crown className="h-4 w-4" />
+              {formatPriceJPY(PREMIUM_PRICE)}で解放して返信
+            </TapButton>
+          ) : (
+            <div className="space-y-2">
+              <TextareaField value={replyDraft} onChange={(e) => setReplyDraft(e.target.value)} rows={4} placeholder="返信を入力（個人情報や誘い文句のリンクは控えてください）" />
+              <TapButton
+                variant="primary"
+                onClick={() => replyMutation.mutate()}
+                disabled={!replyDraft.trim() || replyMutation.isPending}
+                className="w-full"
+              >
+                {replyMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
+                返信を送信
+              </TapButton>
+            </div>
+          )}
+        </Card>
       </SectionCard>
     );
   };
@@ -959,28 +905,23 @@ export const AppShell = () => {
     const threads = threadsQuery.data?.threads ?? [];
 
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <SectionCard
           title="掲示板"
-          subtitle="受験生同士で質問と情報をスレッドで交換できます。規約遵守をお願いします。"
+          subtitle="受験生同士で気軽に質問・情報交換ができる場所です。"
           action={
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={handleStartThreadCompose}
-                className="inline-flex items-center gap-2 rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white"
-              >
-                <Plus className="h-4 w-4" />
-                スレッドを立てる
-              </button>
-            </div>
+            <TapButton variant="primary" onClick={handleStartThreadCompose} className="px-3">
+              <Plus className="h-4 w-4" />
+              新規
+            </TapButton>
           }
         >
-          <div className="mb-4 flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
             {boardCategories.map((category) => (
               <button
                 key={category}
                 onClick={() => setBoardCategory(category)}
-                className={`rounded-full px-4 py-2 text-sm font-semibold ${boardCategory === category ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
+                className={`min-h-[40px] rounded-full px-3 text-xs font-semibold ${boardCategory === category ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
               >
                 {category === 'all' ? 'すべて' : category}
               </button>
@@ -988,111 +929,57 @@ export const AppShell = () => {
           </div>
 
           {showThreadComposer ? (
-            <div className="mb-6 rounded-3xl border border-slate-200 bg-slate-50 p-5">
-              <div className="text-sm font-semibold text-navy-900">新しいスレッドを作成</div>
-              <div className="mt-4 grid gap-3">
-                <input
-                  value={threadDraft.title}
-                  onChange={(e) => setThreadDraft((current) => ({ ...current, title: e.target.value }))}
-                  placeholder="スレッドタイトル（2〜60文字）"
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
-                />
-                <select
-                  value={threadDraft.category}
-                  onChange={(e) => setThreadDraft((current) => ({ ...current, category: e.target.value as BoardCategory }))}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
-                >
-                  {(['相談', '勉強法', '出願', '面接', '雑談'] as BoardCategory[]).map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </select>
-                <textarea
-                  value={threadDraft.body}
-                  onChange={(e) => setThreadDraft((current) => ({ ...current, body: e.target.value }))}
-                  placeholder="本文（2〜2000文字、個人情報の公開は避けてください）"
-                  rows={5}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
-                />
+            <Card className="mt-4 bg-slate-50">
+              <div className="text-sm font-semibold text-navy-900">新しいスレッドを立てる</div>
+              <div className="mt-3 space-y-2">
+                <TextField value={threadDraft.title} onChange={(e) => setThreadDraft((c) => ({ ...c, title: e.target.value }))} placeholder="タイトル（2〜60文字）" />
+                <SelectField value={threadDraft.category} onChange={(e) => setThreadDraft((c) => ({ ...c, category: e.target.value as BoardCategory }))}>
+                  {(['相談', '勉強法', '出願', '面接', '雑談'] as BoardCategory[]).map((category) => <option key={category} value={category}>{category}</option>)}
+                </SelectField>
+                <TextareaField rows={5} value={threadDraft.body} onChange={(e) => setThreadDraft((c) => ({ ...c, body: e.target.value }))} placeholder="本文（2〜2000文字）" />
                 {isPremium ? (
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={threadDraft.is_premium}
-                      onChange={(e) => setThreadDraft((current) => ({ ...current, is_premium: e.target.checked }))}
-                    />
-                    プレミアム会員限定として公開
+                  <label className="flex items-center gap-2 text-xs text-slate-700">
+                    <input type="checkbox" checked={threadDraft.is_premium} onChange={(e) => setThreadDraft((c) => ({ ...c, is_premium: e.target.checked }))} />
+                    解放済み会員のみが閲覧できるスレッドにする
                   </label>
                 ) : null}
               </div>
-              <div className="mt-4 flex flex-wrap justify-end gap-2">
-                <button
-                  onClick={() => {
-                    setShowThreadComposer(false);
-                    setThreadDraft({ title: '', category: '相談', body: '', is_premium: false });
-                  }}
-                  className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
-                >
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <TapButton variant="secondary" onClick={() => { setShowThreadComposer(false); setThreadDraft({ title: '', category: '相談', body: '', is_premium: false }); }}>
                   キャンセル
-                </button>
-                <button
-                  onClick={() => createThreadMutation.mutate()}
-                  disabled={!threadDraft.title.trim() || !threadDraft.body.trim() || createThreadMutation.isPending}
-                  className="inline-flex items-center gap-2 rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                >
+                </TapButton>
+                <TapButton variant="primary" onClick={() => createThreadMutation.mutate()} disabled={!threadDraft.title.trim() || !threadDraft.body.trim() || createThreadMutation.isPending}>
                   {createThreadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                  スレッドを作成
-                </button>
+                  作成
+                </TapButton>
               </div>
-            </div>
+            </Card>
           ) : null}
 
-          {threadsQuery.isLoading ? <LoadingPanel /> : null}
-
-          {!threadsQuery.isLoading ? (
-            <div className="space-y-3">
-              {threads.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
-                  該当するスレッドがまだありません。最初の一人になりましょう。
-                </div>
-              ) : (
-                threads.map((thread) => (
-                  <button
-                    key={thread.id}
-                    onClick={() => handleOpenThread(thread)}
-                    className="w-full rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-soft transition hover:-translate-y-0.5"
-                  >
-                    <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-                      {thread.is_pinned ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-amber-800">
-                          <Pin className="h-3 w-3" />
-                          固定
-                        </span>
-                      ) : null}
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">{thread.category}</span>
-                      <span
-                        className={`rounded-full px-3 py-1 ${
-                          thread.is_premium ? 'bg-gold-50 text-gold-900' : 'bg-emerald-50 text-emerald-700'
-                        }`}
-                      >
-                        {thread.is_premium ? 'プレミアム限定' : '誰でも閲覧可'}
-                      </span>
-                      {thread.is_closed ? (
-                        <span className="rounded-full bg-slate-200 px-3 py-1 text-slate-700">閉鎖済み</span>
-                      ) : null}
-                    </div>
-                    <div className="mt-3 text-base font-semibold text-navy-900 sm:text-lg">{thread.title}</div>
-                    <div className="mt-1 line-clamp-2 text-sm leading-6 text-slate-600">{thread.body}</div>
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                      <span>{thread.display_name} ・ {formatDateTime(thread.created_at)}</span>
-                      <span>返信 {thread.reply_count} 件 ・ 最終更新 {formatDateTime(thread.last_reply_at ?? thread.updated_at)}</span>
-                    </div>
-                  </button>
-                ))
-              )}
+          {threadsQuery.isLoading ? (
+            <div className="mt-4"><SkeletonGrid count={3} /></div>
+          ) : threads.length === 0 ? (
+            <div className="mt-4"><EmptyState title="まだスレッドがありません" description="気になるテーマで最初のスレッドを立ててみましょう。" /></div>
+          ) : (
+            <div className="mt-4 space-y-2">
+              {threads.map((thread) => (
+                <button key={thread.id} onClick={() => handleOpenThread(thread)} className="w-full rounded-3xl border border-slate-200 bg-white p-3 text-left">
+                  <div className="flex flex-wrap items-center gap-1 text-xs">
+                    {thread.is_pinned ? <Badge tone="amber"><Pin className="h-3 w-3" />固定</Badge> : null}
+                    <Badge tone="slate">{thread.category}</Badge>
+                    {thread.is_premium ? <Badge tone="gold">解放済み限定</Badge> : <Badge tone="emerald">誰でも閲覧可</Badge>}
+                    {thread.is_closed ? <Badge tone="slate">閉鎖済み</Badge> : null}
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-navy-900">{thread.title}</div>
+                  <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{thread.body}</div>
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>{thread.display_name}</span>
+                    <span>返信 {thread.reply_count} ・ {formatDateTime(thread.last_reply_at ?? thread.updated_at)}</span>
+                  </div>
+                </button>
+              ))}
             </div>
-          ) : null}
+          )}
         </SectionCard>
       </div>
     );
@@ -1100,93 +987,69 @@ export const AppShell = () => {
 
   const renderCommunity = () => {
     if (activeThreadId) {
-      if (threadDetailQuery.isLoading) return <LoadingPanel />;
+      if (threadDetailQuery.isLoading) return <SkeletonGrid count={2} />;
       if (threadDetailQuery.data) return renderBoardThreadDetail(threadDetailQuery.data);
       return (
-        <div className="space-y-4">
-          <button
-            onClick={() => setActiveThreadId(null)}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700"
-          >
+        <div className="space-y-3">
+          <TapButton variant="secondary" onClick={() => setActiveThreadId(null)}>
             <ArrowLeft className="h-4 w-4" />
             一覧へ戻る
-          </button>
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            スレッドを読み込めませんでした。限定スレッドの可能性があります。
-          </div>
+          </TapButton>
+          <Card className="border-rose-200 bg-rose-50 text-sm text-rose-700">スレッドを読み込めませんでした。閉鎖済みか、限定スレッドの可能性があります。</Card>
         </div>
       );
     }
 
     return (
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setCommunityMode('board')}
-            className={`rounded-full px-4 py-2 text-sm font-semibold ${communityMode === 'board' ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
-          >
-            掲示板
-          </button>
-          <button
-            onClick={() => setCommunityMode('chat')}
-            className={`rounded-full px-4 py-2 text-sm font-semibold ${communityMode === 'chat' ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
-          >
-            チャットチャンネル
-          </button>
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setCommunityMode('board')} className={`min-h-[44px] rounded-full px-4 text-sm font-semibold ${communityMode === 'board' ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}>掲示板</button>
+          <button onClick={() => setCommunityMode('chat')} className={`min-h-[44px] rounded-full px-4 text-sm font-semibold ${communityMode === 'chat' ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}>チャット</button>
         </div>
 
         {communityMode === 'board' ? renderBoardList() : null}
 
         {communityMode === 'chat' ? (
           !isAuthenticated ? (
-            <AccessGate title="チャットはログイン後に利用可能" description="LINEログイン後、無料チャンネルを閲覧できます。" onAction={requestLogin} />
+            <Card className="border-emerald-200 bg-emerald-50 text-emerald-900">
+              <div className="text-sm font-semibold">チャットはログイン後に使えます</div>
+              <p className="mt-1 text-xs leading-5">LINEでログインすると、チャンネルの閲覧と参加ができます。</p>
+              <TapButton variant="line" onClick={requestLogin} className="mt-3"><UserRound className="h-4 w-4" />LINEでログイン</TapButton>
+            </Card>
           ) : !isPremium ? (
-            <AccessGate
-              title="プレミアムチャンネルはプレミアム会員向け"
-              description="チャット形式の限定チャンネルを使うにはプレミアムへのアップグレードが必要です。"
-              premium
-              onAction={handleUpgrade}
-            />
+            <Card className="border-gold-200 bg-cream-50">
+              <div className="text-sm font-semibold text-navy-900">チャットは解放後に使えます</div>
+              <p className="mt-1 text-xs leading-5 text-slate-700">{formatPriceJPY(PREMIUM_PRICE)}（買い切り）で、チャットチャンネルが解放されます。</p>
+              <TapButton variant="primary" onClick={handleUpgrade} className="mt-3"><Crown className="h-4 w-4" />すべての機能を解放</TapButton>
+            </Card>
           ) : (
-            <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-              <SectionCard title="チャンネル一覧" subtitle="用途ごとにチャットの場を分けています。">
-                <div className="space-y-2">
-                  {channels.map((channel) => (
-                    <button
-                      key={channel.id}
-                      onClick={() => setSelectedChannelId(channel.id)}
-                      className={`w-full rounded-2xl border px-4 py-3 text-left text-sm ${selectedChannelId === channel.id ? 'border-navy bg-slate-50' : 'border-slate-200 bg-white'}`}
-                    >
-                      <div className="font-semibold text-navy-900">{channel.name}</div>
-                      <div className="mt-1 text-slate-500">{channel.description}</div>
-                    </button>
-                  ))}
-                </div>
-              </SectionCard>
-
-              <SectionCard title="メッセージ" subtitle="質問は短く区切って送ると、あとで見返しやすくなります。">
-                <div className="space-y-3">
-                  {(messagesQuery.data ?? []).map((message) => (
-                    <div key={message.id} className="rounded-2xl bg-slate-50 p-4">
-                      <div className="text-sm font-semibold text-navy-900">{message.display_name}</div>
-                      <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{message.content}</div>
-                      <div className="mt-2 text-xs text-slate-500">{formatDateTime(message.created_at)}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-4 flex gap-3">
-                  <input
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="メッセージを入力"
-                    className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm"
-                  />
-                  <button onClick={() => messageMutation.mutate()} className="rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white">
-                    送信
+            <SectionCard title="チャンネル一覧" subtitle="用途ごとに会話を分けています。">
+              <div className="space-y-2">
+                {(channelsQuery.data ?? []).map((channel) => (
+                  <button
+                    key={channel.id}
+                    onClick={() => setSelectedChannelId(channel.id)}
+                    className={`w-full rounded-2xl border px-3 py-3 text-left text-sm ${selectedChannelId === channel.id ? 'border-navy bg-slate-50' : 'border-slate-200 bg-white'}`}
+                  >
+                    <div className="font-semibold text-navy-900">{channel.name}</div>
+                    <div className="mt-1 text-xs text-slate-500">{channel.description}</div>
                   </button>
-                </div>
-              </SectionCard>
-            </div>
+                ))}
+              </div>
+              <div className="mt-4 space-y-2">
+                {(messagesQuery.data ?? []).map((message) => (
+                  <Card key={message.id} className="bg-slate-50 p-3">
+                    <div className="text-xs font-semibold text-navy-900">{message.display_name}</div>
+                    <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">{message.content}</div>
+                    <div className="mt-1 text-[11px] text-slate-500">{formatDateTime(message.created_at)}</div>
+                  </Card>
+                ))}
+              </div>
+              <div className="mt-3 flex gap-2">
+                <TextField value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder="メッセージを入力" />
+                <TapButton variant="primary" onClick={() => messageMutation.mutate()}>送信</TapButton>
+              </div>
+            </SectionCard>
           )
         ) : null}
       </div>
@@ -1195,115 +1058,89 @@ export const AppShell = () => {
 
   const renderAdmin = () => {
     if (!profile?.is_admin) {
-      return <AccessGate title="管理画面" description="管理者権限が必要です。" onAction={() => navigate('home')} />;
+      return <Card className="text-sm text-slate-600">管理者向けの画面です。</Card>;
     }
-
     return (
-      <SectionCard title="登録ユーザー一覧" subtitle="運営確認用のシンプルな一覧です。">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <SectionCard title="登録ユーザー" subtitle="運営確認用の一覧です。">
+        <div className="space-y-2">
           {(adminUsersQuery.data ?? []).map((user) => (
-            <div key={user.id} className="rounded-[28px] border border-slate-200 p-5 text-sm text-slate-700">
-              <div className="text-lg font-semibold text-navy-900">{user.display_name}</div>
-              <div className="mt-2 leading-6">学校: {user.school_name ?? '-'}</div>
-              <div className="leading-6">プレミアム: {user.is_premium ? 'はい' : 'いいえ'}</div>
-              <div className="leading-6">登録日: {formatDateTime(user.created_at)}</div>
-            </div>
+            <Card key={user.id} className="p-3">
+              <div className="text-sm font-semibold text-navy-900">{user.display_name}</div>
+              <div className="mt-1 text-xs text-slate-600">学校：{user.school_name ?? '-'}</div>
+              <div className="text-xs text-slate-600">解放済み：{user.is_premium ? 'はい' : 'いいえ'}</div>
+              <div className="text-xs text-slate-600">登録：{formatDateTime(user.created_at)}</div>
+            </Card>
           ))}
         </div>
       </SectionCard>
     );
   };
 
+  const renderContent = () => {
+    if (tab === 'home') return renderHome();
+    if (tab === 'universities') return renderUniversities();
+    if (tab === 'schedules') return renderSchedules();
+    if (tab === 'problems') return renderProblems();
+    if (tab === 'dashboard') return renderDashboard();
+    if (tab === 'community') return renderCommunity();
+    if (tab === 'admin') return renderAdmin();
+    return null;
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[#f6f7fb] pb-24">
       <LiffBootstrap liffId={publicLineConfig.liffId} enableDevLogin={publicLineConfig.enableDevLogin} />
 
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-md items-center justify-between gap-2 px-4 py-3">
           <div>
-            <div className="text-2xl font-bold tracking-tight text-navy-900">Re-try</div>
-            <div className="text-sm text-slate-500">医学部学士編入の不安を、次の一手に変える</div>
+            <div className="text-lg font-bold tracking-tight text-navy-900">Re-try</div>
+            <div className="text-[11px] text-slate-500">迷う時間を減らし、前に進む時間を増やす。</div>
           </div>
-
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
             {isAuthenticated ? (
               <>
-                <div className={`rounded-full px-4 py-2 text-sm font-semibold ${isPremium ? 'bg-gold-50 text-gold-900' : 'bg-slate-100 text-slate-700'}`}>
-                  {isPremium ? 'プレミアム' : '無料プラン'}
-                </div>
+                <Badge tone={isPremium ? 'gold' : 'slate'}>{isPremium ? '解放済み' : '無料'}</Badge>
                 {!isPremium ? (
-                  <button onClick={handleUpgrade} disabled={upgradeMutation.isPending} className="inline-flex items-center gap-2 rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                    {upgradeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Crown className="h-4 w-4" />}
-                    決済案内へ進む
+                  <button onClick={handleUpgrade} className="inline-flex min-h-[40px] items-center gap-1 rounded-full bg-navy px-3 text-xs font-semibold text-white">
+                    <Crown className="h-3.5 w-3.5" />
+                    解放
                   </button>
                 ) : null}
-                <button onClick={requestLogout} className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
-                  <LogOut className="h-4 w-4" />
-                  ログアウト
+                <button onClick={requestLogout} className="inline-flex min-h-[40px] items-center gap-1 rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700">
+                  <LogOut className="h-3.5 w-3.5" />
                 </button>
               </>
             ) : (
-              <button onClick={requestLogin} className="inline-flex items-center gap-2 rounded-full bg-[#06C755] px-5 py-2.5 text-sm font-semibold text-white">
-                <UserRound className="h-4 w-4" />
-                LINEでログイン
+              <button onClick={requestLogin} className="inline-flex min-h-[40px] items-center gap-1 rounded-full bg-[#06C755] px-3 text-xs font-semibold text-white">
+                <UserRound className="h-3.5 w-3.5" />
+                LINE
               </button>
             )}
           </div>
         </div>
-
-        <div className="mx-auto flex max-w-7xl flex-wrap gap-2 px-4 pb-4 sm:px-6 lg:px-8">
-          {tabItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.key}
-                onClick={() => navigate(item.key)}
-                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold ${tab === item.key ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
+        {showAdminTab ? (
+          <div className="mx-auto max-w-md px-4 pb-2">
+            <button
+              onClick={() => navigate('admin')}
+              className={`inline-flex min-h-[36px] items-center gap-1 rounded-full px-3 text-xs font-semibold ${tab === 'admin' ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              管理者
+            </button>
+          </div>
+        ) : null}
       </header>
 
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        {billingStatus === 'success' ? (
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            決済が完了しました。プレミアム状態の反映を確認してください。
-          </div>
-        ) : null}
-        {billingStatus === 'cancel' ? (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            決済はキャンセルされました。必要であれば再度お試しください。
-          </div>
-        ) : null}
-
-        {tab === 'home' ? renderHome() : null}
-        {tab === 'universities' ? renderUniversities() : null}
-        {tab === 'schedules' ? renderSchedules() : null}
-        {tab === 'problems' ? renderProblems() : null}
-        {tab === 'dashboard' ? renderDashboard() : null}
-        {tab === 'community' ? renderCommunity() : null}
-        {tab === 'admin' ? renderAdmin() : null}
+      <main className="mx-auto max-w-md space-y-4 px-4 py-4">
+        {billingBanner}
+        {renderContent()}
+        <div className="pt-2 text-center text-[11px] text-slate-500">
+          <Link href="/legal/tokushoho" className="font-semibold text-navy-900">特定商取引法に基づく表記</Link>
+        </div>
       </main>
 
-      <footer className="border-t border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-6 text-sm text-slate-500 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
-          <div>Re-try は、大学比較・日程・過去問・学習記録を一体化した受験支援アプリです。</div>
-          <div className="flex items-center gap-4">
-            <Link href="/legal/tokushoho" className="font-semibold text-navy-900">特定商取引法に基づく表記</Link>
-          </div>
-        </div>
-      </footer>
-
-      {(summaryQuery.isLoading || universitiesQuery.isLoading || schedulesQuery.isLoading || problemsQuery.isLoading) && (
-        <div className="fixed bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-navy px-4 py-2 text-sm text-white shadow-soft">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          読み込み中
-        </div>
-      )}
+      <BottomNav active={(tab === 'admin' ? 'home' : tab) as BottomTabKey} onChange={(next) => navigate(next)} />
     </div>
   );
 };

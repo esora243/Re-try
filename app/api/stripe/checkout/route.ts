@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   try {
     const stripeSecretKey = env.stripeSecretKey();
     if (!stripeSecretKey) {
-      return fail('Stripe の環境変数が未設定です。', 500);
+      return fail('お支払いの準備が整っていません。少し時間をおいて再度お試しください。', 500);
     }
 
     const { profile } = await requireSession();
@@ -35,7 +35,6 @@ export async function POST(request: Request) {
           lineUserId: profile.line_user_id
         }
       });
-
       customerId = customer.id;
       try {
         await prisma.userProfile.update({
@@ -43,7 +42,7 @@ export async function POST(request: Request) {
           data: { stripeCustomerId: customerId }
         });
       } catch {
-        // モックログインなど DB 未登録ユーザーでは永続化をスキップ
+        // モックユーザー等で DB 未登録の場合はスキップ
       }
     }
 
@@ -56,7 +55,14 @@ export async function POST(request: Request) {
       billing_address_collection: 'auto',
       locale: 'ja',
       metadata: {
-        userId: profile.id
+        userId: profile.id,
+        purchaseType: 'lifetime'
+      },
+      payment_intent_data: {
+        metadata: {
+          userId: profile.id,
+          purchaseType: 'lifetime'
+        }
       },
       line_items: [
         {
@@ -76,11 +82,11 @@ export async function POST(request: Request) {
     });
 
     if (!session.url) {
-      throw new Error('Stripe Checkout URL の生成に失敗しました。');
+      throw new Error('お支払いページの作成に失敗しました。少し時間をおいて再度お試しください。');
     }
 
     return ok({ url: session.url });
   } catch (error) {
-    return fail(error instanceof Error ? error.message : '決済セッションの作成に失敗しました。', 400);
+    return fail(error instanceof Error ? error.message : 'お支払いの準備中に問題が発生しました。少し時間をおいて再度お試しください。', 400);
   }
 }
