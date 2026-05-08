@@ -59,7 +59,7 @@ export const env = {
     process.env.STRIPE_PREMIUM_DESCRIPTION?.trim() ||
     '一度のお支払いで、過去問解説・掲示板・学習ツールなど Re-try のすべての機能をずっと使えます。',
   businessServiceName: () => process.env.BUSINESS_SERVICE_NAME?.trim() || 'Re-try',
-  businessOperatorType: () => process.env.BUSINESS_OPERATOR_TYPE?.trim() || '個人事業',
+  businessOperatorType: () => process.env.BUSINESS_OPERATOR_TYPE?.trim() || '学士編入有志の皆様',
   businessSellerName: () => process.env.BUSINESS_SELLER_NAME?.trim() || 'Re-try 運営事務局',
   businessRepresentative: () => process.env.BUSINESS_REPRESENTATIVE_NAME?.trim() || '運営責任者',
   businessContactEmail: () => process.env.BUSINESS_CONTACT_EMAIL?.trim() || 'support@example.com',

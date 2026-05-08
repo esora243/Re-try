@@ -8,13 +8,13 @@ const rows = [
   ['所在地', env.businessAddressNotice()],
   ['電話番号', env.businessPhoneNotice()],
   ['メールアドレス', env.businessContactEmail()],
-  ['販売価格', '各申込ページに税込価格を表示します。'],
+  ['販売価格', '各申込ページに表示します。'],
   ['商品代金以外の必要料金', 'インターネット接続に必要な通信料はお客様負担です。'],
-  ['支払方法', 'Stripe を通じたクレジットカードその他対応決済手段'],
+  ['支払方法', 'クレジットカードその他に対応しました'],
   ['支払時期', '申込時に決済されます。'],
   ['提供時期', '決済完了後、対象機能を直ちに利用できます。'],
   ['返品・キャンセル', 'デジタルサービスの性質上、決済完了後の返金・キャンセルは原則としてお受けしていません。'],
-  ['動作環境', 'LINE が利用できるスマートフォン、または主要モダンブラウザの最新環境を推奨します。']
+  ['動作環境', 'LINE が利用できるスマートフォン、またはsafariの最新環境を推奨。']
 ] as const;
 
 export default function TokushohoPage() {
@@ -28,7 +28,7 @@ export default function TokushohoPage() {
           <h1 className="mt-4 text-3xl font-bold tracking-tight text-navy-900 sm:text-4xl">特定商取引法に基づく表記</h1>
           <p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">
             Re-try では、プレミアム機能の販売条件をわかりやすく確認できるよう、必要事項を以下に掲載しています。
-            現在の運営形態は個人事業で、住所と電話番号はご請求があった場合に遅滞なく開示する方針です。
+            住所と電話番号はご請求があった場合に開示します。
           </p>
         </div>
 
@@ -44,8 +44,7 @@ export default function TokushohoPage() {
         <div className="mt-8 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm leading-7 text-amber-900">
           <div className="font-semibold">本番公開前の確認</div>
           <p className="mt-2">
-            本ページは環境変数の値を参照して表示できます。販売事業者名、運営責任者名、公開用メールアドレスが確定している場合は、
-            本番環境の BUSINESS_* 系変数へ実値を設定してください。
+            ご不明な点等などはお問い合わせフォーム、公式LINEよりお問い合わせください。
           </p>
         </div>
       </div>
