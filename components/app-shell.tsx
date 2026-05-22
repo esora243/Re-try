@@ -5,11 +5,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
-  ArrowRight,
   BookOpen,
   CalendarDays,
   CheckCircle2,
   Crown,
+  ExternalLink,
   Filter,
   Loader2,
   Lock,
@@ -19,7 +19,6 @@ import {
   Plus,
   Search,
   ShieldCheck,
-  Sparkles,
   University as UniversityIcon,
   UserRound
 } from 'lucide-react';
@@ -32,7 +31,7 @@ import {
   Badge,
   Card,
   EmptyState,
-  FieldLabel,
+  FadeIn,
   ProgressBar,
   SectionCard,
   SelectField,
@@ -42,6 +41,7 @@ import {
   TextareaField
 } from '@/components/ui';
 import type {
+  AdmissionInfo,
   BoardCategory,
   BoardReply,
   BoardThread,
@@ -64,12 +64,12 @@ type ProblemsResponse = {
   progress: Record<string, 'correct' | 'wrong' | 'bookmarked'>;
   profile: Pick<UserProfile, 'id' | 'is_premium'> | null;
 };
+type UniversityDetailResponse = { university: University; problems: Problem[] };
 type OnboardingPayload = { full_name: string; school_name: string; gender: UserGender; club_name: string };
 
 const subjectOptions = ['all', '生命科学', '数学', '英語', '化学', '物理', '小論文'];
 const genderOptions: UserGender[] = ['男性', '女性', 'その他', '回答しない'];
 const regionOptions = ['all', '北海道・東北', '関東', '中部', '近畿', '中国・四国', '九州'];
-const scheduleYears = ['2025', '2026', '2027'];
 const boardCategories: Array<'all' | BoardCategory> = ['all', '相談', '勉強法', '出願', '面接', '雑談'];
 const problemFilterOptions = [
   { key: 'all', label: 'すべて' },
@@ -95,7 +95,6 @@ export const AppShell = () => {
   const [tab, setTab] = useState<TabKey>('home');
   const [billingStatus, setBillingStatus] = useState<'success' | 'cancel' | null>(null);
 
-  const [selectedScheduleYear, setSelectedScheduleYear] = useState('2026');
   const [problemSubject, setProblemSubject] = useState('all');
   const [problemYear, setProblemYear] = useState('all');
   const [problemUniversityId, setProblemUniversityId] = useState('all');
@@ -104,6 +103,7 @@ export const AppShell = () => {
 
   const [regionFilter, setRegionFilter] = useState('all');
   const [universitySearch, setUniversitySearch] = useState('');
+  const [selectedUniversityId, setSelectedUniversityId] = useState<string | null>(null);
 
   const [studyLogSort, setStudyLogSort] = useState<'date_desc' | 'minutes_desc' | 'subject'>('date_desc');
   const [studyLogSubject, setStudyLogSubject] = useState('all');
@@ -146,6 +146,7 @@ export const AppShell = () => {
 
   const navigate = (nextTab: TabKey) => {
     setTab(nextTab);
+    setSelectedUniversityId(null);
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     params.set('tab', nextTab);
@@ -155,16 +156,17 @@ export const AppShell = () => {
   const meQuery = useQuery<MeResponse>({ queryKey: ['me'], queryFn: () => fetchJson('/api/me') });
   const summaryQuery = useQuery<SummaryResponse>({ queryKey: ['summary'], queryFn: () => fetchJson('/api/summary') });
   const universitiesQuery = useQuery<University[]>({ queryKey: ['universities'], queryFn: () => fetchJson('/api/universities') });
-  const schedulesQuery = useQuery<ExamSchedule[]>({
-    queryKey: ['schedules', selectedScheduleYear],
-    queryFn: () => fetchJson(`/api/schedules?year=${encodeURIComponent(selectedScheduleYear)}`)
-  });
   const problemsQuery = useQuery<ProblemsResponse>({
     queryKey: ['problems', problemSubject, problemYear, problemUniversityId],
     queryFn: () =>
       fetchJson(
         `/api/problems?subject=${encodeURIComponent(problemSubject)}&year=${encodeURIComponent(problemYear)}&universityId=${encodeURIComponent(problemUniversityId)}`
       )
+  });
+  const universityDetailQuery = useQuery<UniversityDetailResponse>({
+    queryKey: ['university-detail', selectedUniversityId],
+    queryFn: () => fetchJson(`/api/universities/${selectedUniversityId}`),
+    enabled: Boolean(selectedUniversityId)
   });
 
   const profile = meQuery.data?.profile ?? null;
@@ -264,7 +266,8 @@ export const AppShell = () => {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['problems'] }),
-        queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+        queryClient.invalidateQueries({ queryKey: ['university-detail'] })
       ]);
     }
   });
@@ -353,7 +356,6 @@ export const AppShell = () => {
   };
 
   const universities = universitiesQuery.data ?? [];
-  const schedules = schedulesQuery.data ?? [];
   const problems = problemsQuery.data?.problems ?? [];
   const progressMap = problemsQuery.data?.progress ?? {};
   const dashboard = dashboardQuery.data;
@@ -361,7 +363,7 @@ export const AppShell = () => {
   const filteredUniversities = useMemo(() => {
     return universities.filter((university) => {
       const matchesRegion = regionFilter === 'all' || university.region === regionFilter;
-      const text = `${university.name} ${university.note ?? ''}`.toLowerCase();
+      const text = `${university.name} ${university.prefecture ?? ''} ${university.note ?? ''}`.toLowerCase();
       const matchesSearch = !universitySearch || text.includes(universitySearch.toLowerCase());
       return matchesRegion && matchesSearch;
     });
@@ -381,7 +383,8 @@ export const AppShell = () => {
       if (problemFilter === 'wrong' && status !== 'wrong') return false;
       if (problemFilter === 'bookmarked' && status !== 'bookmarked') return false;
       if (!keyword) return true;
-      return `${problem.subject} ${problem.question} ${problem.university?.name ?? ''}`.toLowerCase().includes(keyword);
+      const text = `${problem.subject} ${problem.question ?? ''} ${problem.university?.name ?? ''}`.toLowerCase();
+      return text.includes(keyword);
     });
   }, [problemFilter, problemSearch, problems, progressMap]);
 
@@ -396,82 +399,96 @@ export const AppShell = () => {
 
   const billingBanner =
     billingStatus === 'success' ? (
-      <Card className="border-emerald-200 bg-emerald-50 text-sm text-emerald-800">
-        ご購入ありがとうございます。すべての機能が解放されました。
-      </Card>
+      <FadeIn>
+        <Card className="border-emerald-200 bg-emerald-50 text-sm text-emerald-800">
+          ご購入ありがとうございます。すべての機能が解放されました。
+        </Card>
+      </FadeIn>
     ) : billingStatus === 'cancel' ? (
-      <Card className="border-amber-200 bg-amber-50 text-sm text-amber-800">
-        お支払いはキャンセルされました。気になったらいつでも続きから進められます。
-      </Card>
+      <FadeIn>
+        <Card className="border-amber-200 bg-amber-50 text-sm text-amber-800">
+          お支払いはキャンセルされました。気になったらいつでも続きから進められます。
+        </Card>
+      </FadeIn>
     ) : null;
 
   const upgradeCard = !isPremium ? (
-    <SectionCard title="すべての機能を解放" subtitle="一度の支払いで永久に利用できます。サブスクリプションではありません。">
+    <SectionCard title="すべての機能を解放" subtitle="一度の支払いで、ずっと使えます。">
       <div className="rounded-3xl bg-cream-50 p-4">
         <div className="flex items-baseline gap-2">
           <div className="text-3xl font-bold text-navy-900">{formatPriceJPY(PREMIUM_PRICE)}</div>
           <div className="text-xs text-slate-500">税込・買い切り</div>
         </div>
         <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-          <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />過去問の解答と詳しい解説を閲覧</li>
+          <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />過去問本文と解説を閲覧</li>
           <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />掲示板の限定スレッドに参加</li>
-          <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />これから追加される新機能も追加料金なし</li>
+          <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />これから追加される機能も追加料金なし</li>
         </ul>
         <TapButton variant="primary" onClick={handleUpgrade} disabled={upgradeMutation.isPending} className="mt-4 w-full">
           {upgradeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Crown className="h-4 w-4" />}
           {formatPriceJPY(PREMIUM_PRICE)}を支払って解放する
         </TapButton>
-        <p className="mt-2 text-[11px] leading-5 text-slate-500">決済は Stripe を利用します。デジタル商品の特性上、決済後の返金はお受けできません。</p>
+        <p className="mt-2 text-[11px] leading-5 text-slate-500">デジタル商品の特性上、決済後の返金はお受けできません。</p>
       </div>
     </SectionCard>
   ) : null;
 
   const renderHome = () => (
     <div className="space-y-4">
-      <Card className="bg-gradient-to-br from-navy to-[#3253c8] text-white">
-        <Badge tone="gold">医学部学士編入サポート</Badge>
-        <h1 className="mt-3 text-2xl font-bold leading-snug">
-          迷う時間を減らし、<br />前に進む時間を増やす。
-        </h1>
-        <p className="mt-3 text-sm leading-6 text-sky-100">
-          大学比較・日程・過去問・学習記録・掲示板を一画面に。今日やる一手が、自然と決まります。
-        </p>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <TapButton variant="line" className="w-full" onClick={isAuthenticated ? () => navigate('dashboard') : requestLogin}>
-            <UserRound className="h-4 w-4" />
-            {isAuthenticated ? '記録を開く' : 'LINEで始める'}
-          </TapButton>
-          <TapButton variant="ghost" className="w-full bg-white/15 text-white" onClick={() => navigate('problems')}>
-            <BookOpen className="h-4 w-4" />
-            過去問を見る
-          </TapButton>
-        </div>
-      </Card>
+      <FadeIn>
+        <Card className="bg-gradient-to-br from-navy to-[#3253c8] text-white">
+          <Badge tone="gold">医学部学士編入サポート</Badge>
+          <h1 className="mt-3 text-2xl font-bold leading-snug">
+            迷う時間を減らし、<br />前に進む時間を増やす。
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-sky-100">
+            大学比較・日程・過去問・学習記録・掲示板を一画面に。今日やる一手が、自然と決まります。
+          </p>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <TapButton variant="line" className="w-full" onClick={isAuthenticated ? () => navigate('dashboard') : requestLogin}>
+              <UserRound className="h-4 w-4" />
+              {isAuthenticated ? '記録を開く' : 'LINEで始める'}
+            </TapButton>
+            <TapButton variant="ghost" className="w-full bg-white/15 text-white hover:bg-white/25" onClick={() => navigate('universities')}>
+              <UniversityIcon className="h-4 w-4" />
+              大学を見る
+            </TapButton>
+          </div>
+        </Card>
+      </FadeIn>
 
       <div className="grid grid-cols-2 gap-3">
-        <Card>
-          <div className="text-xs text-slate-500">掲載大学</div>
-          <div className="mt-1 text-2xl font-bold text-navy-900">{summaryQuery.data?.universities ?? 0}</div>
-        </Card>
-        <Card>
-          <div className="text-xs text-slate-500">公開問題</div>
-          <div className="mt-1 text-2xl font-bold text-navy-900">{summaryQuery.data?.problems ?? 0}</div>
-        </Card>
-        <Card>
-          <div className="text-xs text-slate-500">掲示板スレッド</div>
-          <div className="mt-1 text-2xl font-bold text-navy-900">{summaryQuery.data?.boardThreads ?? 0}</div>
-        </Card>
-        <Card>
-          <div className="text-xs text-slate-500">プラン</div>
-          <div className="mt-1 text-base font-semibold text-navy-900">{isPremium ? '解放済み' : '無料で利用中'}</div>
-        </Card>
+        <FadeIn delay={60}>
+          <Card>
+            <div className="text-xs text-slate-500">掲載大学</div>
+            <div className="mt-1 text-2xl font-bold text-navy-900">{summaryQuery.data?.universities ?? universities.length}</div>
+          </Card>
+        </FadeIn>
+        <FadeIn delay={120}>
+          <Card>
+            <div className="text-xs text-slate-500">掲載問題</div>
+            <div className="mt-1 text-2xl font-bold text-navy-900">{summaryQuery.data?.problems ?? 0}</div>
+          </Card>
+        </FadeIn>
+        <FadeIn delay={180}>
+          <Card>
+            <div className="text-xs text-slate-500">掲示板スレッド</div>
+            <div className="mt-1 text-2xl font-bold text-navy-900">{summaryQuery.data?.boardThreads ?? 0}</div>
+          </Card>
+        </FadeIn>
+        <FadeIn delay={240}>
+          <Card>
+            <div className="text-xs text-slate-500">プラン</div>
+            <div className="mt-1 text-base font-semibold text-navy-900">{isPremium ? '解放済み' : '無料で利用中'}</div>
+          </Card>
+        </FadeIn>
       </div>
 
       <SectionCard title="まずやることリスト" subtitle="この順番で進めると、迷いにくくなります。">
         <ol className="space-y-3 text-sm text-slate-700">
-          <li className="flex gap-3 rounded-2xl bg-slate-50 p-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-navy text-xs font-semibold text-white">1</span>大学比較で志望校の候補を絞る</li>
-          <li className="flex gap-3 rounded-2xl bg-slate-50 p-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-navy text-xs font-semibold text-white">2</span>日程ページで出願締切と試験日を押さえる</li>
-          <li className="flex gap-3 rounded-2xl bg-slate-50 p-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-navy text-xs font-semibold text-white">3</span>過去問を解いて、学習記録に残す</li>
+          <li className="flex gap-3 rounded-2xl bg-slate-50 p-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-navy text-xs font-semibold text-white">1</span>大学一覧で志望校の候補を絞る</li>
+          <li className="flex gap-3 rounded-2xl bg-slate-50 p-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-navy text-xs font-semibold text-white">2</span>各大学の入試情報と過去問を確認する</li>
+          <li className="flex gap-3 rounded-2xl bg-slate-50 p-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-navy text-xs font-semibold text-white">3</span>解いた記録を残して、復習対象を見直す</li>
         </ol>
       </SectionCard>
 
@@ -479,149 +496,380 @@ export const AppShell = () => {
 
       <SectionCard title="最新の掲示板" subtitle="気になるスレッドを開くと、すぐ参加できます。">
         <div className="space-y-3">
-          {(threadsQuery.data?.threads ?? []).slice(0, 3).map((thread) => (
-            <button
-              key={thread.id}
-              onClick={() => {
-                navigate('community');
-                setCommunityMode('board');
-                handleOpenThread(thread);
-              }}
-              className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left"
+          {(threadsQuery.data?.threads ?? []).slice(0, 3).map((thread, idx) => (
+            <FadeIn key={thread.id} delay={idx * 60}>
+              <button
+                onClick={() => {
+                  navigate('community');
+                  setCommunityMode('board');
+                  handleOpenThread(thread);
+                }}
+                className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left transition-all duration-200 hover:border-navy/30 hover:shadow-md active:scale-[0.99]"
+              >
+                <div className="flex flex-wrap items-center gap-1">
+                  <Badge tone="slate">{thread.category}</Badge>
+                  {thread.is_premium ? <Badge tone="gold">解放済み限定</Badge> : <Badge tone="emerald">誰でも閲覧可</Badge>}
+                </div>
+                <div className="mt-2 text-sm font-semibold text-navy-900">{thread.title}</div>
+                <div className="mt-1 text-xs text-slate-500">返信 {thread.reply_count} 件 ・ 最終 {formatDateTime(thread.last_reply_at ?? thread.updated_at)}</div>
+              </button>
+            </FadeIn>
+          ))}
+        </div>
+      </SectionCard>
+    </div>
+  );
+
+  const renderAdmissionBlock = (info: AdmissionInfo) => (
+    <div className="rounded-2xl bg-slate-50 p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-semibold text-navy-900">{info.year}年度入試</div>
+        {info.capacity ? <Badge tone="navy">募集 {info.capacity}名</Badge> : null}
+      </div>
+      <dl className="mt-2 grid grid-cols-1 gap-y-1.5 text-xs text-slate-700">
+        {info.application_period ? (
+          <div className="flex gap-2"><dt className="w-20 shrink-0 text-slate-500">出願期間</dt><dd className="font-medium">{info.application_period}</dd></div>
+        ) : null}
+        {info.first_exam_date ? (
+          <div className="flex gap-2"><dt className="w-20 shrink-0 text-slate-500">一次試験</dt><dd className="font-medium">{info.first_exam_date}</dd></div>
+        ) : null}
+        {info.second_exam_date ? (
+          <div className="flex gap-2"><dt className="w-20 shrink-0 text-slate-500">二次試験</dt><dd className="font-medium">{info.second_exam_date}</dd></div>
+        ) : null}
+        {info.subjects_first ? (
+          <div className="flex gap-2"><dt className="w-20 shrink-0 text-slate-500">試験科目</dt><dd className="font-medium leading-5">{info.subjects_first}{info.subjects_second ? ` / ${info.subjects_second}` : ''}</dd></div>
+        ) : null}
+        {info.english_requirement ? (
+          <div className="flex gap-2"><dt className="w-20 shrink-0 text-slate-500">英語要件</dt><dd className="font-medium">{info.english_requirement}</dd></div>
+        ) : null}
+      </dl>
+      {info.source_url ? (
+        <a
+          href={info.source_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-navy hover:underline"
+        >
+          公式情報を見る
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      ) : null}
+    </div>
+  );
+
+  const renderUniversityDetail = (university: University, detailProblems: Problem[]) => {
+    const sortedAdmissions = [...(university.admissions ?? [])].sort((a, b) => b.year - a.year).slice(0, 2);
+
+    return (
+      <div className="space-y-4 animate-fade-in-up">
+        <SectionCard
+          title={university.name}
+          subtitle={`${university.prefecture} ・ ${university.entry_year}`}
+          action={
+            <TapButton variant="secondary" onClick={() => setSelectedUniversityId(null)} className="px-3">
+              <ArrowLeft className="h-4 w-4" />
+              戻る
+            </TapButton>
+          }
+        >
+          <div className="flex flex-wrap gap-1 text-xs">
+            <Badge tone="slate">{university.region}</Badge>
+            <Badge tone="navy">{university.capacity_label}</Badge>
+          </div>
+
+          {university.note ? <p className="mt-3 text-xs leading-5 text-slate-600">{university.note}</p> : null}
+
+          <div className="mt-4 grid grid-cols-1 gap-2 text-xs text-slate-700">
+            <div className="rounded-2xl bg-slate-50 px-3 py-2"><span className="text-slate-500">生命科学：</span>{university.life_sci}</div>
+            <div className="rounded-2xl bg-slate-50 px-3 py-2"><span className="text-slate-500">物理 / 化学：</span>{university.physics_chem}</div>
+            <div className="rounded-2xl bg-slate-50 px-3 py-2"><span className="text-slate-500">統計 / 数学：</span>{university.stats_math}</div>
+            <div className="rounded-2xl bg-slate-50 px-3 py-2"><span className="text-slate-500">英語：</span>{university.english_summary}</div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <a
+              href={university.admissions_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-[40px] items-center gap-1 rounded-full bg-navy px-4 text-xs font-semibold text-white shadow-soft transition-all hover:shadow-md active:scale-[0.97]"
             >
-              <div className="flex flex-wrap items-center gap-1">
-                <Badge tone="slate">{thread.category}</Badge>
-                {thread.is_premium ? <Badge tone="gold">解放済み限定</Badge> : <Badge tone="emerald">誰でも閲覧可</Badge>}
+              <ExternalLink className="h-3.5 w-3.5" />
+              入試案内（公式）
+            </a>
+            <a
+              href={university.official_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-[40px] items-center gap-1 rounded-full border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.97]"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              大学公式
+            </a>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="入試情報" subtitle="最新と前年度を表示しています。詳細は必ず公式の募集要項をご確認ください。">
+          {sortedAdmissions.length === 0 ? (
+            <EmptyState title="情報未登録" description="この大学の入試情報はまだ登録されていません。" />
+          ) : (
+            <div className="space-y-3">
+              {sortedAdmissions.map((info, idx) => (
+                <FadeIn key={`${info.year}-${idx}`} delay={idx * 80}>{renderAdmissionBlock(info)}</FadeIn>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="この大学の過去問" subtitle="掲載されている過去問の一覧です。">
+          {detailProblems.length === 0 ? (
+            <EmptyState title="掲載準備中" description="この大学の過去問はまだ登録されていません。" />
+          ) : (
+            <div className="space-y-3">
+              {detailProblems.map((problem, idx) => (
+                <FadeIn key={problem.id} delay={idx * 60}>
+                  {renderProblemCard(problem)}
+                </FadeIn>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+    );
+  };
+
+  const renderUniversities = () => {
+    if (selectedUniversityId) {
+      if (universityDetailQuery.isLoading) return <SkeletonGrid count={3} />;
+      if (universityDetailQuery.data) {
+        return renderUniversityDetail(universityDetailQuery.data.university, universityDetailQuery.data.problems);
+      }
+      return (
+        <div className="space-y-3">
+          <TapButton variant="secondary" onClick={() => setSelectedUniversityId(null)}>
+            <ArrowLeft className="h-4 w-4" />
+            一覧へ戻る
+          </TapButton>
+          <Card className="border-rose-200 bg-rose-50 text-sm text-rose-700">大学情報を読み込めませんでした。少し時間をおいて再度お試しください。</Card>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        <SectionCard title="大学一覧" subtitle="地域や校名で絞り込みできます。タップで詳細を開きます。">
+          <div className="space-y-2">
+            <SelectField value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}>
+              {regionOptions.map((region) => (
+                <option key={region} value={region}>{region === 'all' ? '全地域' : region}</option>
+              ))}
+            </SelectField>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <TextField
+                value={universitySearch}
+                onChange={(e) => setUniversitySearch(e.target.value)}
+                placeholder="大学名・都道府県で検索"
+                className="pl-10"
+              />
+            </div>
+          </div>
+
+          {universitiesQuery.isLoading ? (
+            <div className="mt-4"><SkeletonGrid count={4} /></div>
+          ) : filteredUniversities.length === 0 ? (
+            <div className="mt-4"><EmptyState title="該当なし" description="条件をゆるめてもう一度お試しください。" /></div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {filteredUniversities.map((university, idx) => {
+                const latest = [...(university.admissions ?? [])].sort((a, b) => b.year - a.year)[0];
+                return (
+                  <FadeIn key={university.id} delay={Math.min(idx * 40, 400)}>
+                    <Card
+                      onClick={() => setSelectedUniversityId(university.id)}
+                      className="hover:border-navy/30"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-base font-semibold text-navy-900">{university.name}</div>
+                          <div className="mt-0.5 text-xs text-slate-500">{university.region} ・ {university.prefecture}</div>
+                        </div>
+                        <Badge tone="navy">{university.capacity_label}</Badge>
+                      </div>
+
+                      {latest ? (
+                        <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                          <span className="font-semibold text-navy-900">{latest.year}年度</span>
+                          {latest.application_period ? <> ・ 出願 {latest.application_period}</> : null}
+                          {latest.first_exam_date ? <> ・ 一次 {latest.first_exam_date}</> : null}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-2 text-[11px] text-slate-500">タップで詳細・過去問へ</div>
+                    </Card>
+                  </FadeIn>
+                );
+              })}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+    );
+  };
+
+  const renderSchedules = () => {
+    const upcomingByUniversity = [...universities]
+      .map((university) => ({
+        university,
+        latest: [...(university.admissions ?? [])].sort((a, b) => b.year - a.year)[0]
+      }))
+      .filter((entry) => entry.latest)
+      .sort((a, b) => {
+        const aDate = a.latest?.first_exam_date ?? a.latest?.application_period ?? '';
+        const bDate = b.latest?.first_exam_date ?? b.latest?.application_period ?? '';
+        return aDate.localeCompare(bDate);
+      });
+
+    return (
+      <div className="space-y-4">
+        <SectionCard title="試験日程" subtitle="各大学の最新入試の日程をまとめました。">
+          {upcomingByUniversity.length === 0 ? (
+            <SkeletonGrid count={3} />
+          ) : (
+            <div className="space-y-3">
+              {upcomingByUniversity.map((entry, idx) => (
+                <FadeIn key={entry.university.id} delay={Math.min(idx * 40, 400)}>
+                  <Card onClick={() => { setTab('universities'); setSelectedUniversityId(entry.university.id); }}>
+                    <div className="text-base font-semibold text-navy-900">{entry.university.name}</div>
+                    <div className="mt-0.5 text-xs text-slate-500">{entry.university.region} ・ {entry.latest?.year}年度</div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-700">
+                      <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">出願</div><div className="font-semibold">{entry.latest?.application_period ?? '—'}</div></div>
+                      <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">募集</div><div className="font-semibold">{entry.university.capacity_label}</div></div>
+                      <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">一次試験</div><div className="font-semibold">{entry.latest?.first_exam_date ?? '—'}</div></div>
+                      <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">二次試験</div><div className="font-semibold">{entry.latest?.second_exam_date ?? '—'}</div></div>
+                    </div>
+                    <a
+                      href={entry.university.admissions_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-navy hover:underline"
+                    >
+                      公式の入試案内を開く
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </Card>
+                </FadeIn>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+    );
+  };
+
+  const renderProblemCard = (problem: Problem) => {
+    const status = progressMap[problem.id];
+    const locked = problem.is_premium && !problem.can_view_question;
+    return (
+      <Card key={problem.id}>
+        <div className="flex flex-wrap items-center gap-1 text-xs">
+          <Badge tone="slate">{problem.subject}</Badge>
+          <Badge tone="slate">{problem.year}年</Badge>
+          <Badge tone="slate">難易度 {problem.difficulty}</Badge>
+          {problem.is_premium ? <Badge tone="gold">解放済み限定</Badge> : <Badge tone="emerald">無料</Badge>}
+          {status === 'correct' ? <Badge tone="emerald">正解</Badge> : null}
+          {status === 'wrong' ? <Badge tone="rose">復習</Badge> : null}
+          {status === 'bookmarked' ? <Badge tone="amber">保存</Badge> : null}
+        </div>
+        <div className="mt-2 text-xs font-medium text-slate-500">{problem.university?.name ?? ''}</div>
+
+        {locked ? (
+          <>
+            <div className="mt-2 relative overflow-hidden rounded-2xl bg-slate-50 p-3">
+              <div className="premium-blur text-sm leading-6 text-slate-800 select-none">
+                この問題は解放後に表示されます。十分な分量の文章とともに、詳細な解説と模範解答が用意されています。
               </div>
-              <div className="mt-2 text-sm font-semibold text-navy-900">{thread.title}</div>
-              <div className="mt-1 text-xs text-slate-500">返信 {thread.reply_count} 件 ・ 最終 {formatDateTime(thread.last_reply_at ?? thread.updated_at)}</div>
-            </button>
-          ))}
-        </div>
-      </SectionCard>
-    </div>
-  );
-
-  const renderUniversities = () => (
-    <div className="space-y-4">
-      <SectionCard title="大学比較" subtitle="地域や校名で絞り込み、出題傾向の違いを確認できます。">
-        <div className="space-y-2">
-          <SelectField value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}>
-            {regionOptions.map((region) => (
-              <option key={region} value={region}>{region === 'all' ? '全地域' : region}</option>
-            ))}
-          </SelectField>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <TextField
-              value={universitySearch}
-              onChange={(e) => setUniversitySearch(e.target.value)}
-              placeholder="大学名やメモで検索"
-              className="pl-10"
-            />
-          </div>
-        </div>
-
-        {universitiesQuery.isLoading ? (
-          <div className="mt-4"><SkeletonGrid count={3} /></div>
-        ) : filteredUniversities.length === 0 ? (
-          <div className="mt-4"><EmptyState title="該当なし" description="条件をゆるめてもう一度お試しください。" /></div>
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center">
+                <Lock className="h-4 w-4 text-gold-900" />
+                <div className="text-xs font-semibold text-navy-900">問題文は解放後に閲覧できます</div>
+              </div>
+            </div>
+            <TapButton variant="primary" onClick={handleUpgrade} className="mt-3 w-full">
+              <Crown className="h-4 w-4" />
+              {formatPriceJPY(PREMIUM_PRICE)}で解放
+            </TapButton>
+          </>
         ) : (
-          <div className="mt-4 space-y-3">
-            {filteredUniversities.map((university) => (
-              <Card key={university.id}>
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="text-base font-semibold text-navy-900">{university.name}</div>
-                    <div className="mt-0.5 text-xs text-slate-500">{university.region}</div>
-                  </div>
-                  <Badge tone="slate">比較用</Badge>
-                </div>
-                <div className="mt-3 space-y-2 text-sm text-slate-700">
-                  <div className="rounded-2xl bg-slate-50 px-3 py-2">生命科学：{university.life_sci}</div>
-                  <div className="rounded-2xl bg-slate-50 px-3 py-2">物理 / 化学：{university.physics_chem}</div>
-                  <div className="rounded-2xl bg-slate-50 px-3 py-2">統計 / 数学：{university.stats_math}</div>
-                </div>
-                {university.note ? <p className="mt-3 text-xs leading-5 text-slate-500">{university.note}</p> : null}
-              </Card>
-            ))}
-          </div>
-        )}
-      </SectionCard>
-    </div>
-  );
+          <>
+            <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">{problem.question}</div>
+            {problem.options ? <div className="mt-2 whitespace-pre-wrap rounded-2xl bg-slate-50 p-3 text-xs leading-6 text-slate-600">{problem.options}</div> : null}
 
-  const renderSchedules = () => (
-    <div className="space-y-4">
-      <SectionCard title="試験日程" subtitle="出願から二次試験までを年度別に整理しました。">
-        <div className="mb-3 flex flex-wrap gap-2">
-          {scheduleYears.map((year) => (
-            <button
-              key={year}
-              onClick={() => setSelectedScheduleYear(year)}
-              className={`min-h-[44px] rounded-full px-4 text-sm font-semibold ${selectedScheduleYear === year ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              {year}年度
-            </button>
-          ))}
-        </div>
-        {schedulesQuery.isLoading ? (
-          <SkeletonGrid count={3} />
-        ) : schedules.length === 0 ? (
-          <EmptyState title="日程未登録" description="この年度の日程はまだ登録されていません。" />
-        ) : (
-          <div className="space-y-3">
-            {schedules.map((schedule) => (
-              <Card key={schedule.id}>
-                <div className="text-base font-semibold text-navy-900">{schedule.university?.name ?? '大学名未設定'}</div>
-                <div className="mt-0.5 text-xs text-slate-500">{schedule.university?.region ?? '地域未設定'} ・ {schedule.year}年度</div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-700">
-                  <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">出願開始</div><div className="font-semibold">{formatDate(schedule.application_start)}</div></div>
-                  <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">出願締切</div><div className="font-semibold">{formatDate(schedule.application_end)}</div></div>
-                  <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">一次試験</div><div className="font-semibold">{formatDate(schedule.first_exam_date)}</div></div>
-                  <div className="rounded-2xl bg-slate-50 px-3 py-2"><div className="text-[11px] text-slate-500">二次試験</div><div className="font-semibold">{formatDate(schedule.second_exam_date)}</div></div>
-                </div>
-                {schedule.memo ? <p className="mt-3 text-xs leading-5 text-slate-500">{schedule.memo}</p> : null}
-              </Card>
+            {problem.can_view_answer ? (
+              <div className="mt-3 rounded-3xl bg-sky-50 p-3 text-xs leading-6 text-slate-700">
+                <div className="font-semibold text-navy-900">解答</div>
+                <div>{problem.answer ?? '—'}</div>
+                {problem.answer_detail ? <div className="mt-1 text-slate-600">{problem.answer_detail}</div> : null}
+              </div>
+            ) : null}
+          </>
+        )}
+
+        {isAuthenticated && !locked ? (
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {(['correct', 'wrong', 'bookmarked'] as const).map((next) => (
+              <button
+                key={next}
+                onClick={() => progressMutation.mutate({ problemId: problem.id, status: next })}
+                className={`min-h-[44px] rounded-full text-xs font-semibold transition-all duration-200 active:scale-[0.97] ${
+                  status === next ? 'bg-navy text-white shadow-soft' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {next === 'correct' ? '正解' : next === 'wrong' ? '復習' : '保存'}
+              </button>
             ))}
           </div>
-        )}
-      </SectionCard>
-    </div>
-  );
+        ) : !isAuthenticated && !locked ? (
+          <div className="mt-3 text-xs text-slate-500">進捗を残すにはログインしてください。</div>
+        ) : null}
+      </Card>
+    );
+  };
 
   const renderProblems = () => {
-    const totalCount = problems.length;
-    const finishedCount = problems.filter((p) => progressMap[p.id]).length;
-    const correctCount = problems.filter((p) => progressMap[p.id] === 'correct').length;
+    const visibleProblems = problems.filter((p) => p.can_view_question);
+    const totalCount = visibleProblems.length;
+    const finishedCount = visibleProblems.filter((p) => progressMap[p.id]).length;
+    const correctCount = visibleProblems.filter((p) => progressMap[p.id] === 'correct').length;
     const progressValue = totalCount ? Math.round((finishedCount / totalCount) * 100) : 0;
 
     return (
       <div className="space-y-4">
         {!isPremium ? (
-          <Card className="border-gold-200 bg-cream-50">
-            <div className="flex items-start gap-3">
-              <Crown className="h-5 w-5 text-gold-900" />
-              <div>
-                <div className="text-sm font-semibold text-navy-900">解答と解説を読みたい方へ</div>
-                <p className="mt-1 text-xs leading-5 text-slate-700">
-                  {formatPriceJPY(PREMIUM_PRICE)}（税込・買い切り）で、過去問の解答・解説と掲示板の限定スレッドが解放されます。
-                </p>
-                <TapButton variant="primary" onClick={handleUpgrade} className="mt-3">
-                  <Crown className="h-4 w-4" />
-                  すべての機能を解放する
-                </TapButton>
+          <FadeIn>
+            <Card className="border-gold-200 bg-cream-50">
+              <div className="flex items-start gap-3">
+                <Crown className="h-5 w-5 text-gold-900" />
+                <div>
+                  <div className="text-sm font-semibold text-navy-900">過去問の本文を読みたい方へ</div>
+                  <p className="mt-1 text-xs leading-5 text-slate-700">
+                    {formatPriceJPY(PREMIUM_PRICE)}（税込・買い切り）で、過去問の本文・解答・解説と掲示板の限定スレッドが解放されます。
+                  </p>
+                  <TapButton variant="primary" onClick={handleUpgrade} className="mt-3">
+                    <Crown className="h-4 w-4" />
+                    すべての機能を解放する
+                  </TapButton>
+                </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          </FadeIn>
         ) : null}
 
-        <SectionCard title="あなたの進捗" subtitle="この一覧での到達度を表示しています。">
+        <SectionCard title="あなたの進捗" subtitle="閲覧可能な問題に対する到達度です。">
           <ProgressBar value={progressValue} label={`着手 ${finishedCount} / ${totalCount} 問`} />
           <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
             <Card className="p-3"><div className="text-slate-500">正解</div><div className="mt-1 text-lg font-bold text-navy-900">{correctCount}</div></Card>
-            <Card className="p-3"><div className="text-slate-500">復習対象</div><div className="mt-1 text-lg font-bold text-navy-900">{problems.filter((p) => progressMap[p.id] === 'wrong').length}</div></Card>
-            <Card className="p-3"><div className="text-slate-500">保存</div><div className="mt-1 text-lg font-bold text-navy-900">{problems.filter((p) => progressMap[p.id] === 'bookmarked').length}</div></Card>
+            <Card className="p-3"><div className="text-slate-500">復習対象</div><div className="mt-1 text-lg font-bold text-navy-900">{visibleProblems.filter((p) => progressMap[p.id] === 'wrong').length}</div></Card>
+            <Card className="p-3"><div className="text-slate-500">保存</div><div className="mt-1 text-lg font-bold text-navy-900">{visibleProblems.filter((p) => progressMap[p.id] === 'bookmarked').length}</div></Card>
           </div>
         </SectionCard>
 
@@ -639,16 +887,22 @@ export const AppShell = () => {
                 ))}
               </SelectField>
             </div>
+            <SelectField value={problemUniversityId} onChange={(e) => setProblemUniversityId(e.target.value)}>
+              <option value="all">全大学</option>
+              {universities.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </SelectField>
             <div className="relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <TextField value={problemSearch} onChange={(e) => setProblemSearch(e.target.value)} placeholder="問題本文や大学名で検索" className="pl-10" />
+              <TextField value={problemSearch} onChange={(e) => setProblemSearch(e.target.value)} placeholder="科目・大学名で検索" className="pl-10" />
             </div>
             <div className="flex flex-wrap gap-2">
               {problemFilterOptions.map((item) => (
                 <button
                   key={item.key}
                   onClick={() => setProblemFilter(item.key)}
-                  className={`min-h-[44px] rounded-full px-4 text-xs font-semibold ${problemFilter === item.key ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
+                  className={`min-h-[40px] rounded-full px-4 text-xs font-semibold transition-all duration-200 active:scale-[0.97] ${
+                    problemFilter === item.key ? 'bg-navy text-white shadow-soft' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
                 >
                   <Filter className="mr-1 inline h-3 w-3" />
                   {item.label}
@@ -664,57 +918,11 @@ export const AppShell = () => {
           <EmptyState title="一致する問題はありません" description="フィルタを少しゆるめてみてください。" />
         ) : (
           <div className="space-y-3">
-            {filteredProblems.map((problem) => {
-              const status = progressMap[problem.id];
-              return (
-                <Card key={problem.id}>
-                  <div className="flex flex-wrap items-center gap-1 text-xs">
-                    <Badge tone="slate">{problem.subject}</Badge>
-                    <Badge tone="slate">{problem.year}年</Badge>
-                    <Badge tone="slate">難易度 {problem.difficulty}</Badge>
-                    {problem.is_premium ? <Badge tone="gold">解放済み限定</Badge> : <Badge tone="emerald">無料</Badge>}
-                    {status === 'correct' ? <Badge tone="emerald">正解</Badge> : null}
-                    {status === 'wrong' ? <Badge tone="rose">復習</Badge> : null}
-                    {status === 'bookmarked' ? <Badge tone="amber">保存</Badge> : null}
-                  </div>
-                  <div className="mt-2 text-xs font-medium text-slate-500">{problem.university?.name ?? '大学未設定'}</div>
-                  <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">{problem.question}</div>
-                  {problem.options ? <div className="mt-2 whitespace-pre-wrap rounded-2xl bg-slate-50 p-3 text-xs leading-6 text-slate-600">{problem.options}</div> : null}
-
-                  {problem.can_view_answer ? (
-                    <div className="mt-3 rounded-3xl bg-sky-50 p-3 text-xs leading-6 text-slate-700">
-                      <div className="font-semibold text-navy-900">解答</div>
-                      <div>{problem.answer ?? '未設定'}</div>
-                      {problem.answer_detail ? <div className="mt-1 text-slate-600">{problem.answer_detail}</div> : null}
-                    </div>
-                  ) : (
-                    <div className="mt-3 rounded-3xl border border-gold-200 bg-cream-50 p-3 text-xs leading-6 text-gold-900">
-                      <div className="flex items-center gap-1 font-semibold"><Lock className="h-3 w-3" />解答は解放後に閲覧できます</div>
-                      <TapButton variant="primary" onClick={handleUpgrade} className="mt-2 w-full">
-                        <Crown className="h-4 w-4" />
-                        {formatPriceJPY(PREMIUM_PRICE)}で解放
-                      </TapButton>
-                    </div>
-                  )}
-
-                  {isAuthenticated ? (
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      {(['correct', 'wrong', 'bookmarked'] as const).map((next) => (
-                        <button
-                          key={next}
-                          onClick={() => progressMutation.mutate({ problemId: problem.id, status: next })}
-                          className={`min-h-[44px] rounded-full text-xs font-semibold ${status === next ? 'bg-navy text-white' : 'border border-slate-200 bg-white text-slate-700'}`}
-                        >
-                          {next === 'correct' ? '正解' : next === 'wrong' ? '復習' : '保存'}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mt-3 text-xs text-slate-500">進捗を残すにはログインしてください。</div>
-                  )}
-                </Card>
-              );
-            })}
+            {filteredProblems.map((problem, idx) => (
+              <FadeIn key={problem.id} delay={Math.min(idx * 40, 400)}>
+                {renderProblemCard(problem)}
+              </FadeIn>
+            ))}
           </div>
         )}
       </div>
@@ -724,14 +932,16 @@ export const AppShell = () => {
   const renderDashboard = () => {
     if (!isAuthenticated) {
       return (
-        <Card className="border-emerald-200 bg-emerald-50 text-emerald-900">
-          <div className="text-sm font-semibold">学習記録はログイン後に使えます</div>
-          <p className="mt-1 text-xs leading-5">LINEログインで、学習時間や正答率の記録を始められます。</p>
-          <TapButton variant="line" onClick={requestLogin} className="mt-3">
-            <UserRound className="h-4 w-4" />
-            LINEでログイン
-          </TapButton>
-        </Card>
+        <FadeIn>
+          <Card className="border-emerald-200 bg-emerald-50 text-emerald-900">
+            <div className="text-sm font-semibold">学習記録はログイン後に使えます</div>
+            <p className="mt-1 text-xs leading-5">LINEログインで、学習時間や正答率の記録を始められます。</p>
+            <TapButton variant="line" onClick={requestLogin} className="mt-3">
+              <UserRound className="h-4 w-4" />
+              LINEでログイン
+            </TapButton>
+          </Card>
+        </FadeIn>
       );
     }
 
@@ -817,8 +1027,8 @@ export const AppShell = () => {
             ) : (
               dashboard?.weakProblems.map((problem) => (
                 <Card key={problem.id} className="p-3">
-                  <div className="text-xs font-semibold text-navy-900">{problem.subject} ・ {problem.university?.name ?? '大学未設定'}</div>
-                  <div className="mt-1 line-clamp-3 text-xs leading-5 text-slate-600">{problem.question}</div>
+                  <div className="text-xs font-semibold text-navy-900">{problem.subject} ・ {problem.university?.name ?? ''}</div>
+                  <div className="mt-1 line-clamp-3 text-xs leading-5 text-slate-600">{problem.question ?? '（解放後に表示されます）'}</div>
                 </Card>
               ))
             )}
@@ -908,7 +1118,7 @@ export const AppShell = () => {
       <div className="space-y-4">
         <SectionCard
           title="掲示板"
-          subtitle="受験生同士で気軽に質問・情報交換ができる場所です。"
+          subtitle="受験生どうしで気軽に質問・情報交換ができる場所です。"
           action={
             <TapButton variant="primary" onClick={handleStartThreadCompose} className="px-3">
               <Plus className="h-4 w-4" />
@@ -921,7 +1131,9 @@ export const AppShell = () => {
               <button
                 key={category}
                 onClick={() => setBoardCategory(category)}
-                className={`min-h-[40px] rounded-full px-3 text-xs font-semibold ${boardCategory === category ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
+                className={`min-h-[40px] rounded-full px-3 text-xs font-semibold transition-all duration-200 active:scale-[0.97] ${
+                  boardCategory === category ? 'bg-navy text-white shadow-soft' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
               >
                 {category === 'all' ? 'すべて' : category}
               </button>
@@ -929,7 +1141,7 @@ export const AppShell = () => {
           </div>
 
           {showThreadComposer ? (
-            <Card className="mt-4 bg-slate-50">
+            <Card className="mt-4 bg-slate-50 animate-scale-in">
               <div className="text-sm font-semibold text-navy-900">新しいスレッドを立てる</div>
               <div className="mt-3 space-y-2">
                 <TextField value={threadDraft.title} onChange={(e) => setThreadDraft((c) => ({ ...c, title: e.target.value }))} placeholder="タイトル（2〜60文字）" />
@@ -962,21 +1174,26 @@ export const AppShell = () => {
             <div className="mt-4"><EmptyState title="まだスレッドがありません" description="気になるテーマで最初のスレッドを立ててみましょう。" /></div>
           ) : (
             <div className="mt-4 space-y-2">
-              {threads.map((thread) => (
-                <button key={thread.id} onClick={() => handleOpenThread(thread)} className="w-full rounded-3xl border border-slate-200 bg-white p-3 text-left">
-                  <div className="flex flex-wrap items-center gap-1 text-xs">
-                    {thread.is_pinned ? <Badge tone="amber"><Pin className="h-3 w-3" />固定</Badge> : null}
-                    <Badge tone="slate">{thread.category}</Badge>
-                    {thread.is_premium ? <Badge tone="gold">解放済み限定</Badge> : <Badge tone="emerald">誰でも閲覧可</Badge>}
-                    {thread.is_closed ? <Badge tone="slate">閉鎖済み</Badge> : null}
-                  </div>
-                  <div className="mt-2 text-sm font-semibold text-navy-900">{thread.title}</div>
-                  <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{thread.body}</div>
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
-                    <span>{thread.display_name}</span>
-                    <span>返信 {thread.reply_count} ・ {formatDateTime(thread.last_reply_at ?? thread.updated_at)}</span>
-                  </div>
-                </button>
+              {threads.map((thread, idx) => (
+                <FadeIn key={thread.id} delay={Math.min(idx * 40, 400)}>
+                  <button
+                    onClick={() => handleOpenThread(thread)}
+                    className="w-full rounded-3xl border border-slate-200 bg-white p-3 text-left transition-all duration-200 hover:border-navy/30 hover:shadow-md active:scale-[0.99]"
+                  >
+                    <div className="flex flex-wrap items-center gap-1 text-xs">
+                      {thread.is_pinned ? <Badge tone="amber"><Pin className="h-3 w-3" />固定</Badge> : null}
+                      <Badge tone="slate">{thread.category}</Badge>
+                      {thread.is_premium ? <Badge tone="gold">解放済み限定</Badge> : <Badge tone="emerald">誰でも閲覧可</Badge>}
+                      {thread.is_closed ? <Badge tone="slate">閉鎖済み</Badge> : null}
+                    </div>
+                    <div className="mt-2 text-sm font-semibold text-navy-900">{thread.title}</div>
+                    <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{thread.body}</div>
+                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                      <span>{thread.display_name}</span>
+                      <span>返信 {thread.reply_count} ・ {formatDateTime(thread.last_reply_at ?? thread.updated_at)}</span>
+                    </div>
+                  </button>
+                </FadeIn>
               ))}
             </div>
           )}
@@ -1003,8 +1220,8 @@ export const AppShell = () => {
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => setCommunityMode('board')} className={`min-h-[44px] rounded-full px-4 text-sm font-semibold ${communityMode === 'board' ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}>掲示板</button>
-          <button onClick={() => setCommunityMode('chat')} className={`min-h-[44px] rounded-full px-4 text-sm font-semibold ${communityMode === 'chat' ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}>チャット</button>
+          <button onClick={() => setCommunityMode('board')} className={`min-h-[44px] rounded-full px-4 text-sm font-semibold transition-all duration-200 active:scale-[0.97] ${communityMode === 'board' ? 'bg-navy text-white shadow-soft' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>掲示板</button>
+          <button onClick={() => setCommunityMode('chat')} className={`min-h-[44px] rounded-full px-4 text-sm font-semibold transition-all duration-200 active:scale-[0.97] ${communityMode === 'chat' ? 'bg-navy text-white shadow-soft' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>チャット</button>
         </div>
 
         {communityMode === 'board' ? renderBoardList() : null}
@@ -1029,7 +1246,7 @@ export const AppShell = () => {
                   <button
                     key={channel.id}
                     onClick={() => setSelectedChannelId(channel.id)}
-                    className={`w-full rounded-2xl border px-3 py-3 text-left text-sm ${selectedChannelId === channel.id ? 'border-navy bg-slate-50' : 'border-slate-200 bg-white'}`}
+                    className={`w-full rounded-2xl border px-3 py-3 text-left text-sm transition-all duration-200 active:scale-[0.99] ${selectedChannelId === channel.id ? 'border-navy bg-slate-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
                   >
                     <div className="font-semibold text-navy-900">{channel.name}</div>
                     <div className="mt-1 text-xs text-slate-500">{channel.description}</div>
@@ -1091,7 +1308,7 @@ export const AppShell = () => {
     <div className="min-h-screen bg-[#f6f7fb] pb-24">
       <LiffBootstrap liffId={publicLineConfig.liffId} enableDevLogin={publicLineConfig.enableDevLogin} />
 
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-slate-200 glass">
         <div className="mx-auto flex max-w-md items-center justify-between gap-2 px-4 py-3">
           <div>
             <div className="text-lg font-bold tracking-tight text-navy-900">Re-try</div>
@@ -1102,17 +1319,17 @@ export const AppShell = () => {
               <>
                 <Badge tone={isPremium ? 'gold' : 'slate'}>{isPremium ? '解放済み' : '無料'}</Badge>
                 {!isPremium ? (
-                  <button onClick={handleUpgrade} className="inline-flex min-h-[40px] items-center gap-1 rounded-full bg-navy px-3 text-xs font-semibold text-white">
+                  <button onClick={handleUpgrade} className="inline-flex min-h-[40px] items-center gap-1 rounded-full bg-navy px-3 text-xs font-semibold text-white shadow-soft transition-all hover:shadow-md active:scale-[0.97]">
                     <Crown className="h-3.5 w-3.5" />
                     解放
                   </button>
                 ) : null}
-                <button onClick={requestLogout} className="inline-flex min-h-[40px] items-center gap-1 rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700">
+                <button onClick={requestLogout} className="inline-flex min-h-[40px] items-center gap-1 rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.97]">
                   <LogOut className="h-3.5 w-3.5" />
                 </button>
               </>
             ) : (
-              <button onClick={requestLogin} className="inline-flex min-h-[40px] items-center gap-1 rounded-full bg-[#06C755] px-3 text-xs font-semibold text-white">
+              <button onClick={requestLogin} className="inline-flex min-h-[40px] items-center gap-1 rounded-full bg-[#06C755] px-3 text-xs font-semibold text-white shadow-soft transition-all hover:shadow-md active:scale-[0.97]">
                 <UserRound className="h-3.5 w-3.5" />
                 LINE
               </button>
@@ -1123,7 +1340,7 @@ export const AppShell = () => {
           <div className="mx-auto max-w-md px-4 pb-2">
             <button
               onClick={() => navigate('admin')}
-              className={`inline-flex min-h-[36px] items-center gap-1 rounded-full px-3 text-xs font-semibold ${tab === 'admin' ? 'bg-navy text-white' : 'bg-slate-100 text-slate-700'}`}
+              className={`inline-flex min-h-[36px] items-center gap-1 rounded-full px-3 text-xs font-semibold transition-all duration-200 active:scale-[0.97] ${tab === 'admin' ? 'bg-navy text-white shadow-soft' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
             >
               <ShieldCheck className="h-3.5 w-3.5" />
               管理者
@@ -1132,7 +1349,7 @@ export const AppShell = () => {
         ) : null}
       </header>
 
-      <main className="mx-auto max-w-md space-y-4 px-4 py-4">
+      <main key={tab + (selectedUniversityId ?? '')} className="mx-auto max-w-md space-y-4 px-4 py-4 animate-fade-in-up">
         {billingBanner}
         {renderContent()}
         <div className="pt-2 text-center text-[11px] text-slate-500">

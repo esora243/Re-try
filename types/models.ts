@@ -21,14 +21,34 @@ export type UserProfile = {
   updated_at: string;
 };
 
+export type AdmissionInfo = {
+  year: number;
+  capacity: number | null;
+  application_period: string | null;
+  first_exam_date: string | null;
+  second_exam_date: string | null;
+  result_announcement: string | null;
+  subjects_first: string | null;
+  subjects_second: string | null;
+  english_requirement: string | null;
+  source_url: string;
+};
+
 export type University = {
   id: string;
   name: string;
   region: string;
+  prefecture: string;
+  capacity_label: string;
+  entry_year: string;
   life_sci: string;
   physics_chem: string;
   stats_math: string;
+  english_summary: string;
   note: string | null;
+  official_url: string;
+  admissions_url: string;
+  admissions: AdmissionInfo[];
   created_at: string;
   updated_at: string;
 };
@@ -44,7 +64,7 @@ export type ExamSchedule = {
   memo: string | null;
   created_at: string;
   updated_at: string;
-  university?: Pick<University, 'id' | 'name' | 'region'>;
+  university?: Pick<University, 'id' | 'name' | 'region' | 'admissions_url'>;
 };
 
 export type Problem = {
@@ -62,6 +82,7 @@ export type Problem = {
   updated_at: string;
   university?: Pick<University, 'id' | 'name' | 'region'> | null;
   can_view_answer?: boolean;
+  can_view_question?: boolean;
 };
 
 export type ProblemProgress = {

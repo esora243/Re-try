@@ -34,8 +34,11 @@ export async function GET(request: Request) {
       return ok({
         problems: filtered.map((problem) => ({
           ...problem,
+          question: problem.is_premium ? null : problem.question,
+          options: problem.is_premium ? null : problem.options,
           answer: problem.is_premium ? null : problem.answer,
           answer_detail: problem.is_premium ? null : problem.answer_detail,
+          can_view_question: !problem.is_premium,
           can_view_answer: !problem.is_premium
         })),
         progress: {},
@@ -70,12 +73,18 @@ export async function GET(request: Request) {
       progress = Object.fromEntries((progressResult.data ?? []).map((item) => [item.problem_id, item.status]));
     }
 
-    const problems = (result.data ?? []).map((problem) => ({
-      ...problem,
-      answer: !problem.is_premium || canViewPremium ? problem.answer : null,
-      answer_detail: !problem.is_premium || canViewPremium ? problem.answer_detail : null,
-      can_view_answer: !problem.is_premium || canViewPremium
-    }));
+    const problems = (result.data ?? []).map((problem) => {
+      const unlocked = !problem.is_premium || canViewPremium;
+      return {
+        ...problem,
+        question: unlocked ? problem.question : null,
+        options: unlocked ? problem.options : null,
+        answer: unlocked ? problem.answer : null,
+        answer_detail: unlocked ? problem.answer_detail : null,
+        can_view_question: unlocked,
+        can_view_answer: unlocked
+      };
+    });
 
     return ok({
       problems,

@@ -31,6 +31,33 @@ const config: Config = {
       borderRadius: {
         '3xl': '24px',
         '4xl': '32px'
+      },
+      keyframes: {
+        shimmer: {
+          '100%': { transform: 'translateX(100%)' }
+        },
+        ripple: {
+          to: { transform: 'scale(2.5)', opacity: '0' }
+        },
+        'fade-in-up': {
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' }
+        },
+        'slide-in-right': {
+          '0%': { opacity: '0', transform: 'translateX(16px)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' }
+        },
+        'scale-in': {
+          '0%': { opacity: '0', transform: 'scale(0.96)' },
+          '100%': { opacity: '1', transform: 'scale(1)' }
+        }
+      },
+      animation: {
+        shimmer: 'shimmer 1.6s infinite',
+        ripple: 'ripple 0.6s ease-out forwards',
+        'fade-in-up': 'fade-in-up 0.35s ease-out',
+        'slide-in-right': 'slide-in-right 0.3s ease-out',
+        'scale-in': 'scale-in 0.25s ease-out'
       }
     }
   },

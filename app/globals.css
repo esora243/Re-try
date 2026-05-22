@@ -15,16 +15,36 @@ html, body {
   color: #0f172a;
   font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
 
 * {
   box-sizing: border-box;
 }
 
+/* よりなめらかなスクロール */
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 a { color: inherit; text-decoration: none; }
 button, input, select, textarea { font: inherit; }
 
 button { min-height: 44px; }
+
+/* Tap時の青い枠を抑制 */
+button:focus-visible, a:focus-visible {
+  outline: 2px solid rgba(31, 58, 138, 0.4);
+  outline-offset: 2px;
+  border-radius: 9999px;
+}
 
 @layer utilities {
   .pb-safe { padding-bottom: calc(var(--safe-bottom) + 1rem); }
@@ -40,4 +60,16 @@ button { min-height: 44px; }
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  .premium-blur {
+    filter: blur(6px);
+    user-select: none;
+    pointer-events: none;
+  }
+  .glass {
+    backdrop-filter: saturate(180%) blur(12px);
+    -webkit-backdrop-filter: saturate(180%) blur(12px);
+    background: rgba(255, 255, 255, 0.85);
+  }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 }
